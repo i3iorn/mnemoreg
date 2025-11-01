@@ -1,11 +1,14 @@
-"""mnemos — small thread-safe registry package.
+"""mnemoreg — small thread-safe registry package.
 
 This package exposes a simple `Registry` mapping useful for registering
 callables and values by string keys. It's intentionally small and
 well-tested.
 """
-from mnemos.core import Registry, AlreadyRegisteredError, NotRegisteredError
-
+from mnemoreg.core import (
+    AlreadyRegisteredError,
+    NotRegisteredError,
+    Registry,
+)
 
 __version__ = "0.1.0"
 
