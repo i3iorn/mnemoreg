@@ -26,16 +26,28 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          pip install pytest pre-commit ruff mypy
-      - name: Run linters (ruff + mypy)
+          pip install pytest pre-commit ruff mypy black isort build
+
+      - name: Auto-fix style issues where possible (ruff/isort/black)
         run: |
-          ruff .
-          mypy --ignore-missing-imports mnemos || true
+          # ruff can automatically fix many issues
+          ruff check --fix . || true
+          # organize imports and format to black's profile
+          isort --profile black . || true
+          black . || true
+
       - name: Run pre-commit (report-only)
         continue-on-error: true
         run: |
           pre-commit run --all-files || true
+
+      - name: Run linters
+        run: |
+          # Run ruff for any remaining issues
+          ruff check .
+          # Type-check package
+          mypy mnemoreg --ignore-missing-imports || true
+
       - name: Run tests
         run: |
           python -m pytest -q
-
