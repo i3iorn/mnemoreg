@@ -17,6 +17,7 @@ from typing import (
     Iterator,
     Mapping,
     MutableMapping,
+    Optional,
     TypeVar,
 )
 
@@ -24,6 +25,7 @@ K = TypeVar("K", bound=str)
 V = TypeVar("V")
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 
 class RegistryError(Exception):
@@ -42,23 +44,14 @@ class Registry(MutableMapping, Generic[K, V]):
     """
     Thread-safe registry implementing MutableMapping.
 
-    Use `register(key)` as decorator or `registry[key] = value`.
-    Provides `snapshot()`, `to_dict()` / `from_dict()` and a context
-    manager for bulk updates.
-
-    Contract (inputs/outputs):
-    - keys: str (type-checked by TypeVar, but not at runtime)
-    - values: arbitrary objects
-    - serialized forms: JSON for JSON helpers (requires JSON-serializable
-      values)
-
-    Error modes:
-    - AlreadyRegisteredError when attempting to register an existing key
-    - NotRegisteredError when accessing or deleting a missing key
+    Arguments:
+        lock: Optional lock object to use for synchronization. If None,
+            a new RLock is created for threadsafe operation.
     """
 
-    def __init__(self) -> None:
-        self._lock = RLock()
+    def __init__(self, *, lock: Optional[RLock] = None) -> None:
+        # _lock is an RLock (supports context manager, acquire/release)
+        self._lock: RLock = lock or RLock()
         self._store: Dict[K, V] = {}
 
     # Mapping protocol
@@ -68,9 +61,7 @@ class Registry(MutableMapping, Generic[K, V]):
             try:
                 return self._store[key]
             except KeyError:
-                raise NotRegisteredError(
-                    f"Registry key {key!r} is not registered"
-                )
+                raise NotRegisteredError(f"Registry key {key!r} is not registered")
 
     def __setitem__(self, key: K, value: V) -> None:
         """Register a new key/value pair. Duplicate keys raise
@@ -94,9 +85,7 @@ class Registry(MutableMapping, Generic[K, V]):
                 del self._store[key]
                 logger.debug("Unregistered %s", key)
             else:
-                raise NotRegisteredError(
-                    f"Registry key {key!r} is not registered"
-                )
+                raise NotRegisteredError(f"Registry key {key!r} is not registered")
 
     def __iter__(self) -> Iterator[K]:
         """Return an iterator over a snapshot of the keys (safe to
@@ -120,20 +109,26 @@ class Registry(MutableMapping, Generic[K, V]):
             return f"{self.__class__.__name__}({list(self._store.keys())!r})"
 
     # Convenience APIs
-    def register(self, key: K) -> Callable[[V], V]:
+    def register(self, key: Optional[K] = None) -> Callable[[V], V]:
         """Decorator to register an object under `key`.
 
         Returns the decorated object.
         Raises AlreadyRegisteredError if key exists.
         """
+
         def decorator(obj: V) -> V:
+            reg_key = key if key is not None else getattr(obj, "__name__", None)
+            if reg_key is None:
+                raise ValueError(
+                    "Registry key must be provided or object must have __name__"
+                )
             with self._lock:
-                if key in self._store:
+                if reg_key in self._store:
                     raise AlreadyRegisteredError(
-                        f"Registry key {key!r} is already registered"
+                        f"Registry key {reg_key!r} is already registered"
                     )
-                self._store[key] = obj
-                logger.debug("Registered via decorator %s -> %s", key, type(obj))
+                self._store[reg_key] = obj
+                logger.debug("Registered via decorator %s -> %s", reg_key, type(obj))
             return obj
 
         return decorator
@@ -152,9 +147,7 @@ class Registry(MutableMapping, Generic[K, V]):
                 del self._store[key]
                 logger.debug("Unregistered %s", key)
             else:
-                raise NotRegisteredError(
-                    f"Registry key {key!r} is not registered"
-                )
+                raise NotRegisteredError(f"Registry key {key!r} is not registered")
 
     def get(self, key: K, default: Any = None) -> Any:
         with self._lock:
@@ -209,12 +202,13 @@ class Registry(MutableMapping, Generic[K, V]):
         The context manager will not suppress exceptions (returns False
         from __exit__).
         """
-        class _Ctx:
-            def __init__(self, r: "Registry"):
-                self._r = r
-                self._lock = r._lock
 
-            def __enter__(self) -> "Registry":
+        class _Ctx:
+            def __init__(self, r: "Registry[K, V]"):
+                self._r: "Registry[K, V]" = r
+                self._lock: RLock = r._lock
+
+            def __enter__(self) -> "Registry[K, V]":
                 self._lock.acquire()
                 return self._r
 
@@ -232,4 +226,3 @@ class Registry(MutableMapping, Generic[K, V]):
     def __setstate__(self, state):
         self._lock = RLock()
         self._store = state.get("_store", {})
-
