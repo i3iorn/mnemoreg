@@ -1,6 +1,6 @@
 import pytest
 import json
-from mnemos import Registry, AlreadyRegisteredError, NotRegisteredError
+from mnemoreg import Registry, AlreadyRegisteredError, NotRegisteredError
 
 
 def test_access_before_registration_raises():

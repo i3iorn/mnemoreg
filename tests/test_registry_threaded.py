@@ -1,6 +1,6 @@
 import pytest
 import threading
-from mnemos import Registry, AlreadyRegisteredError, NotRegisteredError
+from mnemoreg import Registry, AlreadyRegisteredError, NotRegisteredError
 
 import time
 

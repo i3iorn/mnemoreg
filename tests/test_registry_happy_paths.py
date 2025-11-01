@@ -1,6 +1,6 @@
 import pytest
 import json
-from mnemos import (
+from mnemoreg import (
     Registry,
     AlreadyRegisteredError,
     NotRegisteredError,
