@@ -7,14 +7,14 @@ name = "mnemoreg"
 version = "0.1.0"
 description = "A tiny thread-safe registry mapping for simple plugin/registry use-cases."
 readme = "README.md"
-license = { text = "MIT" }
-authors = [ { name = "Björn Schrammel" } ]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [ { name = "Björn Schrammel", email = "mnemoreg@schrammel.dev" } ]
 requires-python = ">=3.8"
+dependencies = []
 
 [project.urls]
-"Source" = "<repo goes here>"
-
-[project.dependencies]
+Source = "https://github.com/i3iorn/mnemoreg"
 
 [project.optional-dependencies]
 dev = [
