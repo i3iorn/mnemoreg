@@ -5,10 +5,20 @@ This module provides a simple, well-tested `Registry` that implements
 support concurrent access. It is intentionally small and explicit.
 """
 
-from threading import RLock
-from typing import Any, Callable, Dict, Generic, Iterator, Mapping, MutableMapping, TypeVar, ContextManager
-import logging
 import json
+import logging
+from threading import RLock
+from typing import (
+    Any,
+    Callable,
+    ContextManager,
+    Dict,
+    Generic,
+    Iterator,
+    Mapping,
+    MutableMapping,
+    TypeVar,
+)
 
 K = TypeVar("K", bound=str)
 V = TypeVar("V")
@@ -31,13 +41,16 @@ class NotRegisteredError(RegistryError, KeyError):
 class Registry(MutableMapping, Generic[K, V]):
     """
     Thread-safe registry implementing MutableMapping.
-    - Use `register(key)` as decorator or `registry[key] = value`.
-    - Provides `snapshot()`, `to_dict()` / `from_dict()` and context manager for bulk updates.
+
+    Use `register(key)` as decorator or `registry[key] = value`.
+    Provides `snapshot()`, `to_dict()` / `from_dict()` and a context
+    manager for bulk updates.
 
     Contract (inputs/outputs):
     - keys: str (type-checked by TypeVar, but not at runtime)
     - values: arbitrary objects
-    - serialized forms: JSON for JSON helpers (requires JSON-serializable values)
+    - serialized forms: JSON for JSON helpers (requires JSON-serializable
+      values)
 
     Error modes:
     - AlreadyRegisteredError when attempting to register an existing key
@@ -55,30 +68,43 @@ class Registry(MutableMapping, Generic[K, V]):
             try:
                 return self._store[key]
             except KeyError:
-                raise NotRegisteredError(f"Registry key {key!r} is not registered")
+                raise NotRegisteredError(
+                    f"Registry key {key!r} is not registered"
+                )
 
     def __setitem__(self, key: K, value: V) -> None:
-        """Register a new key/value pair. Duplicate keys raise AlreadyRegisteredError."""
+        """Register a new key/value pair. Duplicate keys raise
+        AlreadyRegisteredError.
+        """
         # behave like add/register (reject duplicate)
         with self._lock:
             if key in self._store:
-                raise AlreadyRegisteredError(f"Registry key {key!r} is already registered")
+                raise AlreadyRegisteredError(
+                    f"Registry key {key!r} is already registered"
+                )
             self._store[key] = value
             logger.debug("Registered %s -> %s", key, type(value))
 
     def __delitem__(self, key: K) -> None:
-        """Remove a key from the registry or raise NotRegisteredError if missing."""
+        """Remove a key from the registry or raise NotRegisteredError if
+        missing.
+        """
         with self._lock:
             if key in self._store:
                 del self._store[key]
                 logger.debug("Unregistered %s", key)
             else:
-                raise NotRegisteredError(f"Registry key {key!r} is not registered")
+                raise NotRegisteredError(
+                    f"Registry key {key!r} is not registered"
+                )
 
     def __iter__(self) -> Iterator[K]:
-        """Return an iterator over a snapshot of the keys (safe to iterate without holding lock)."""
+        """Return an iterator over a snapshot of the keys (safe to
+        iterate without holding lock).
+        """
         with self._lock:
-            # return a snapshot iterator to avoid holding lock during iteration
+            # return a snapshot iterator to avoid holding lock during
+            # iteration
             return iter(list(self._store.keys()))
 
     def __len__(self) -> int:
@@ -103,7 +129,9 @@ class Registry(MutableMapping, Generic[K, V]):
         def decorator(obj: V) -> V:
             with self._lock:
                 if key in self._store:
-                    raise AlreadyRegisteredError(f"Registry key {key!r} is already registered")
+                    raise AlreadyRegisteredError(
+                        f"Registry key {key!r} is already registered"
+                    )
                 self._store[key] = obj
                 logger.debug("Registered via decorator %s -> %s", key, type(obj))
             return obj
@@ -117,13 +145,16 @@ class Registry(MutableMapping, Generic[K, V]):
             logger.debug("Registry cleared")
 
     def remove(self, key: K) -> None:
-        """Alias for deleting a key (raises NotRegisteredError if missing)."""
+        """Alias for deleting a key (raises NotRegisteredError if
+        missing)."""
         with self._lock:
             if key in self._store:
                 del self._store[key]
                 logger.debug("Unregistered %s", key)
             else:
-                raise NotRegisteredError(f"Registry key {key!r} is not registered")
+                raise NotRegisteredError(
+                    f"Registry key {key!r} is not registered"
+                )
 
     def get(self, key: K, default: Any = None) -> Any:
         with self._lock:
@@ -161,19 +192,22 @@ class Registry(MutableMapping, Generic[K, V]):
 
     @classmethod
     def from_json(cls, s: str, **kwargs: Any) -> "Registry[K, V]":
-        """Construct a Registry from JSON string. Forwards kwargs to `json.loads`."""
+        """Construct a Registry from JSON string. Forwards kwargs to
+        `json.loads`."""
         return cls.from_dict(json.loads(s, **kwargs))
 
     # Context manager for bulk operations
     def bulk(self) -> ContextManager["Registry[K, V]"]:
-        """Return a context manager that yields this registry while holding the lock.
+        """Return a context manager that yields this registry while holding
+        the lock.
 
         Example:
             with registry.bulk() as reg:
                 # reg is the same Registry instance and lock is held
                 reg["k"] = 1
 
-        The context manager will not suppress exceptions (returns False from __exit__).
+        The context manager will not suppress exceptions (returns False
+        from __exit__).
         """
         class _Ctx:
             def __init__(self, r: "Registry"):
