@@ -1,6 +1,6 @@
 import pytest
-from mnemoreg import Registry, AlreadyRegisteredError, NotRegisteredError
-import json
+
+from mnemoreg import AlreadyRegisteredError, Registry
 
 
 # Complex class hierarchy
@@ -8,25 +8,49 @@ class Base:
     def greet(self):
         return "base"
 
+
 class Derived(Base):
     def greet(self):
         return "derived"
+
 
 class Another:
     def greet(self):
         return "another"
 
 
+# Small helper functions to replace assigned lambdas (avoid E731)
+def lam1(x):
+    return x**2
+
+
+def lam2(x):
+    return x - 1
+
+
+# replace short lambda used in snapshot test
+def func1(x):
+    return x * 3
+
+
+# replace short lambda used in repr test
+def func(x):
+    return x * 2
+
+
 def test_complex_registration_mix():
     r = Registry[str, object]()
 
     # Regular functions
-    def foo(x): return x + 1
-    def bar(y): return y * 2
+    def foo(x):
+        return x + 1
 
-    # Lambdas
-    lam1 = lambda x: x ** 2
-    lam2 = lambda x: x - 1
+    def bar(y):
+        return y * 2
+
+    # Lambdas (now named functions)
+    # lam1 = lambda x: x**2
+    # lam2 = lambda x: x - 1
 
     # Already decorated function
     @r.register("foo_func")
@@ -36,7 +60,8 @@ def test_complex_registration_mix():
     # Already decorated class
     @r.register("base_cls")
     class BaseDec:
-        def val(self): return "b"
+        def val(self):
+            return "b"
 
     # Register via item assignment
     r["bar_func"] = bar
@@ -46,10 +71,10 @@ def test_complex_registration_mix():
     r["another_cls"] = Another
 
     # Check that all callable types work
-    assert r["foo_func"](3)  == 30
-    assert r["bar_func"](4)  == 8
-    assert r["lam1"](5)  == 25
-    assert r["lam2"](10)  == 9
+    assert r["foo_func"](3) == 30
+    assert r["bar_func"](4) == 8
+    assert r["lam1"](5) == 25
+    assert r["lam2"](10) == 9
 
     # Classes
     base_inst = r["base_cls"]()
@@ -65,8 +90,10 @@ def test_complex_registration_mix():
         r["foo_func"] = foo
 
     with pytest.raises(AlreadyRegisteredError):
+
         @r.register("lam1")
-        def dummy(): pass
+        def dummy():
+            pass
 
 
 def test_bulk_context_with_complex_operations():
@@ -74,9 +101,12 @@ def test_bulk_context_with_complex_operations():
     r["a"] = 1
     r["b"] = 2
 
+    def d(x):
+        return x + 100
+
     with r.bulk() as reg:
         reg["c"] = 3
-        reg["d"] = lambda x: x + 100
+        reg["d"] = d
         del reg["a"]
         # overwrite within bulk
         with pytest.raises(AlreadyRegisteredError):
@@ -87,18 +117,21 @@ def test_bulk_context_with_complex_operations():
     assert "a" not in r
     assert r["b"] == 2
     assert r["c"] == 3
-    assert r["d"](5)  == 105
+    assert r["d"](5) == 105
 
 
 def test_snapshot_iterator_consistency_with_complex_objects():
     r = Registry[str, object]()
-    r["func1"] = lambda x: x * 3
+    r["func1"] = func1
     r["cls1"] = Derived
     r["val1"] = {"key": 123}
 
+    def new_func(x):
+        return x + 5
+
     it = iter(r)
     # mutate after creating iterator
-    r["new_func"] = lambda x: x + 5
+    r["new_func"] = new_func
     snapshot_keys = list(it)
     # snapshot should not include new_func
     assert "new_func" not in snapshot_keys
@@ -125,24 +158,29 @@ def test_multiple_decorators_on_same_registry():
     r = Registry[str, object]()
 
     @r.register("f1")
-    def f1(x): return x + 1
+    def f1(x):
+        return x + 1
 
     @r.register("f2")
-    def f2(x): return x * 2
+    def f2(x):
+        return x * 2
 
     @r.register("f3")
     class C3:
-        def val(self): return "hello"
+        def val(self):
+            return "hello"
 
     # Decorate again with a different registry instance
     r2 = Registry[str, object]()
-    @r2.register("f1")
-    def f1_other(x): return x - 1
 
-    assert r["f1"](5)  == 6
-    assert r["f2"](3)  == 6
+    @r2.register("f1")
+    def f1_other(x):
+        return x - 1
+
+    assert r["f1"](5) == 6
+    assert r["f2"](3) == 6
     assert r["f3"]().val() == "hello"
-    assert r2["f1"](5)  == 4
+    assert r2["f1"](5) == 4
 
 
 def test_nested_bulk_contexts_with_complex_changes():
@@ -171,13 +209,14 @@ def test_registering_callable_objects():
     r = Registry[str, object]()
 
     class CallableObj:
-        def __call__(self, x): return x + 10
+        def __call__(self, x):
+            return x + 10
 
     obj = CallableObj()
     r["callable"] = obj
 
     assert callable(r["callable"])
-    assert r["callable"](5)  == 15
+    assert r["callable"](5) == 15
 
 
 def test_snapshot_shallow_copy_with_nested_mutables():
@@ -197,7 +236,7 @@ def test_snapshot_shallow_copy_with_nested_mutables():
 def test_repr_and_contains_with_complex_keys_and_values():
     r = Registry[str, object]()
     r["cls"] = Derived
-    r["func"] = lambda x: x * 2
+    r["func"] = func
     r["val"] = 42
 
     rep = repr(r)

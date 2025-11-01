@@ -1,6 +1,8 @@
-import pytest
 import json
-from mnemoreg import Registry, AlreadyRegisteredError, NotRegisteredError
+
+import pytest
+
+from mnemoreg import Registry
 
 
 def test_empty_registry_len_and_repr_are_consistent():
@@ -39,7 +41,12 @@ def test_register_none_value_and_json_serialization():
 
 def test_decorator_registers_lambda_and_preserves_reference():
     r = Registry[str, object]()
-    func = (lambda x: x * 2)
+
+    # use a named function instead of assigning a lambda to a name (E731)
+    def double(x):
+        return x * 2
+
+    func = double
     decorated = r.register("lambda")(func)
     assert r["lambda"] is func is decorated
 

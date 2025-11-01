@@ -1,6 +1,8 @@
-import pytest
 import json
-from mnemoreg import Registry, AlreadyRegisteredError, NotRegisteredError
+
+import pytest
+
+from mnemoreg import AlreadyRegisteredError, NotRegisteredError, Registry
 
 
 def test_access_before_registration_raises():
@@ -28,11 +30,14 @@ def test_register_decorator_duplicate_key_fails():
     r = Registry[str, object]()
 
     @r.register("f")
-    def f(x): return x
+    def f(x):
+        return x
 
     with pytest.raises(AlreadyRegisteredError):
+
         @r.register("f")
-        def g(y): return y
+        def g(y):
+            return y
 
 
 def test_register_with_non_string_key_type_hint_violation():

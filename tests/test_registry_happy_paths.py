@@ -1,9 +1,11 @@
-import pytest
 import json
+
+import pytest
+
 from mnemoreg import (
-    Registry,
     AlreadyRegisteredError,
     NotRegisteredError,
+    Registry,
 )
 
 
@@ -47,6 +49,7 @@ def test_register_decorator_and_duplicate_decorator():
 
     # decorator duplicate should raise at decoration-time
     with pytest.raises(AlreadyRegisteredError):
+
         @r.register("f")
         def another(x):
             return x
@@ -122,7 +125,8 @@ def test_bulk_context_manager_and_exception_propagation_releases_lock():
         reg["a"] = 1
         assert r["a"] == 1
 
-    # exception inside must propagate (return False from __exit__) and not leave lock acquired
+    # exception inside must propagate (return False from __exit__)
+    # and not leave lock acquired
     with pytest.raises(ValueError):
         with r.bulk() as reg:
             reg["b"] = 2

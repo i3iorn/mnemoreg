@@ -1,30 +1,86 @@
-import pytest
 import threading
-from mnemoreg import Registry, AlreadyRegisteredError, NotRegisteredError
 
-import time
+from mnemoreg import AlreadyRegisteredError, NotRegisteredError, Registry
+
+# Module-level helpers to reduce per-function complexity (fix C901)
+
+
+def _writer(reg: Registry, start: int, end: int):
+    for i in range(start, end):
+        key = f"k{i}"
+        reg[key] = i
+
+
+def _reader(reg: Registry, start: int, end: int, results: list):
+    for i in range(start, end):
+        key = f"k{i}"
+        try:
+            val = reg.get(key, None)
+            if val is not None:
+                results.append(val)
+        except Exception as e:
+            results.append(str(e))
+
+
+def _deleter(reg: Registry):
+    for i in range(0, 100, 2):
+        try:
+            del reg[f"k{i}"]
+        except NotRegisteredError:
+            pass
+
+
+def _getter(reg: Registry, results: list):
+    for i in range(100):
+        try:
+            val = reg.get(f"k{i}")
+            results.append(val)
+        except NotRegisteredError:
+            results.append(None)
+
+
+def _make_and_register_func(reg: Registry, n: int):
+    @reg.register(f"f{n}")
+    def f(x):
+        return x + n
+
+    return f
+
+
+def _bulk_writer(reg: Registry, start: int, end: int):
+    with reg.bulk() as r:
+        for i in range(start, end):
+            key = f"k{i}"
+            if key not in r:
+                r[key] = i
+            else:
+                try:
+                    r[key] = i
+                except AlreadyRegisteredError:
+                    pass
+
+
+def _mutator(reg: Registry):
+    for i in range(50, 100):
+        reg[f"k{i}"] = i
+
+
+def _snapper(reg: Registry, out_list: list):
+    out_list.append(reg.snapshot())
+
 
 def test_concurrent_set_and_get():
     r = Registry[str, int]()
 
-    def writer(start, end):
-        for i in range(start, end):
-            key = f"k{i}"
-            r[key] = i
-
-    def reader(start, end, results):
-        for i in range(start, end):
-            key = f"k{i}"
-            try:
-                val = r.get(key, None)
-                if val is not None:
-                    results.append(val)
-            except Exception as e:
-                results.append(str(e))
-
-    write_threads = [threading.Thread(target=writer, args=(i*10, (i+1)*10)) for i in range(5)]
+    write_threads = [
+        threading.Thread(target=_writer, args=(r, i * 10, (i + 1) * 10))
+        for i in range(5)
+    ]
     read_results = []
-    read_threads = [threading.Thread(target=reader, args=(0, 50, read_results)) for _ in range(5)]
+    read_threads = [
+        threading.Thread(target=_reader, args=(r, 0, 50, read_results))
+        for _ in range(5)
+    ]
 
     # Start writers
     for t in write_threads:
@@ -51,27 +107,12 @@ def test_concurrent_deletion_and_access():
     for i in range(100):
         r[f"k{i}"] = i
 
-    def deleter():
-        for i in range(0, 100, 2):
-            try:
-                del r[f"k{i}"]
-            except NotRegisteredError:
-                pass
-
-    def getter(results):
-        for i in range(100):
-            try:
-                val = r.get(f"k{i}")
-                results.append(val)
-            except NotRegisteredError:
-                results.append(None)
-
     threads = []
     results = []
 
     for _ in range(5):
-        threads.append(threading.Thread(target=deleter))
-        threads.append(threading.Thread(target=getter, args=(results,)))
+        threads.append(threading.Thread(target=_deleter, args=(r,)))
+        threads.append(threading.Thread(target=_getter, args=(r, results)))
 
     for t in threads:
         t.start()
@@ -89,13 +130,16 @@ def test_concurrent_deletion_and_access():
 def test_concurrent_register_decorator():
     r = Registry[str, int]()
 
-    def make_func(n):
-        @r.register(f"f{n}")
-        def f(x):
-            return x + n
-        return f
-
-    threads = [threading.Thread(target=make_func, args=(i,)) for i in range(20)]
+    threads = [
+        threading.Thread(
+            target=_make_and_register_func,
+            args=(
+                r,
+                i,
+            ),
+        )
+        for i in range(20)
+    ]
     for t in threads:
         t.start()
     for t in threads:
@@ -110,19 +154,10 @@ def test_concurrent_register_decorator():
 def test_bulk_context_under_concurrency():
     r = Registry[str, int]()
 
-    def bulk_writer(start, end):
-        with r.bulk() as reg:
-            for i in range(start, end):
-                key = f"k{i}"
-                if key not in reg:
-                    reg[key] = i
-                else:
-                    try:
-                        reg[key] = i
-                    except AlreadyRegisteredError:
-                        pass
-
-    threads = [threading.Thread(target=bulk_writer, args=(i*10, (i+1)*10)) for i in range(10)]
+    threads = [
+        threading.Thread(target=_bulk_writer, args=(r, i * 10, (i + 1) * 10))
+        for i in range(10)
+    ]
     for t in threads:
         t.start()
     for t in threads:
@@ -143,17 +178,10 @@ def test_snapshot_under_concurrent_modification():
 
     snapshot_results = []
 
-    def mutator():
-        for i in range(50, 100):
-            r[f"k{i}"] = i
-
-    def snapper():
-        snapshot_results.append(r.snapshot())
-
     threads = []
     for _ in range(5):
-        threads.append(threading.Thread(target=mutator))
-        threads.append(threading.Thread(target=snapper))
+        threads.append(threading.Thread(target=_mutator, args=(r,)))
+        threads.append(threading.Thread(target=_snapper, args=(r, snapshot_results)))
 
     for t in threads:
         t.start()
