@@ -45,7 +45,8 @@ exclude = [".venv", "build", "dist"]
 python_version = "3.10"
 ignore_missing_imports = true
 
-[tool.setuptools-scm]
+[tool.setuptools_scm]
 write_to = "mnemoreg/VERSION"
+write_to_template = "{version}\n"
 local_scheme = "no-local-version"
 version_scheme = "guess-next-dev"

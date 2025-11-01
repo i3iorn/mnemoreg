@@ -18,7 +18,12 @@ from mnemoreg.core import (
 
 def _read_version_file() -> Optional[str]:
     try:
-        return Path(__file__).with_name("VERSION").read_text(encoding="utf8").strip()
+        file_path = Path(__file__).resolve()
+        package_dir = file_path.parent
+        if package_dir.name == "__pycache__":
+            package_dir = package_dir.parent
+        version_file = package_dir.joinpath("VERSION")
+        return version_file.read_text(encoding="utf8").strip()
     except Exception:
         return None
 
