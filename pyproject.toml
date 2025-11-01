@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mnemos"
+version = "0.1.0"
+description = "A tiny thread-safe registry mapping for simple plugin/registry use-cases."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [ { name = "Björn Schrammel" } ]
+requires-python = ">=3.8"
+
+[project.urls]
+"Source" = "<repo goes here>"
+
+[project.dependencies]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pre-commit",
+    "ruff",
+    "mypy",
+    "black",
+    "isort",
+]
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "C", "N", "I"]
+exclude = [".venv", "build", "dist"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
