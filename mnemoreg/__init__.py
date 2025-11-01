@@ -3,15 +3,11 @@
 This package exposes a simple `Registry` mapping useful for registering
 callables and values by string keys. It's intentionally small and dependency-free.
 """
+
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Optional
-
-# importlib.metadata is in the stdlib on Python 3.8+, but allow the
-# importlib_metadata backport if it's available in older envs.
-try:
-    from importlib.metadata import PackageNotFoundError, version as _pkg_version
-except Exception:  # pragma: no cover - backport import
-    from importlib_metadata import PackageNotFoundError, version as _pkg_version
 
 from mnemoreg.core import (
     AlreadyRegisteredError,
