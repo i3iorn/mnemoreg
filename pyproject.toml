@@ -38,7 +38,7 @@ dev = [
 
 [tool.ruff]
 line-length = 88
-select = ["E", "F", "W", "C", "N", "I"]
+lint.select = ["E", "F", "W", "C", "N", "I"]
 exclude = [".venv", "build", "dist"]
 
 [tool.mypy]
