@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemoreg"
-version = "0.1.0"
+version = "0.1.1"
 description = "A tiny thread-safe registry mapping for simple plugin/registry use-cases."
 readme = "README.md"
 license = "MIT"
@@ -12,6 +12,16 @@ license-files = ["LICENSE"]
 authors = [ { name = "Björn Schrammel", email = "mnemoreg@schrammel.dev" } ]
 requires-python = ">=3.8"
 dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
 [project.urls]
 Source = "https://github.com/i3iorn/mnemoreg"
