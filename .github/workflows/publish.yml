@@ -1,4 +1,4 @@
-name: CI and Publish
+name: Build and Publish Package
 
 on:
   push:
