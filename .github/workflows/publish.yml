@@ -189,8 +189,18 @@ jobs:
         run: |
           python -m twine check dist/*
 
+      - name: Check for PyPI token
+        id: check_token
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.MNEMOREG_PY_PI_TOKEN }}" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload to PyPI
-        if: ${{ secrets.MNEMOREG_PY_PI_TOKEN != '' }}
+        if: ${{ steps.check_token.outputs.present == 'true' }}
         uses: pypa/gh-action-pypi-publish@v1
         with:
           user: __token__
