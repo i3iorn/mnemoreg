@@ -1,0 +1,76 @@
+name: Auto-tag on push to main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write  # required to push a tag
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Create tag if missing
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Ensure we have remote tags
+          git fetch --tags origin || true
+
+          echo "Checking tags on $GITHUB_SHA"
+          if git tag --points-at "$GITHUB_SHA" | grep -q .; then
+            echo "Commit already has tag(s):"
+            git tag --points-at "$GITHUB_SHA"
+            exit 0
+          fi
+
+          # Find the latest semantic tag vMAJOR.MINOR.PATCH
+          CURRENT_VERSION=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n 1 || true)
+          echo "Current version: $CURRENT_VERSION"
+
+          if [ -z "$CURRENT_VERSION" ]; then
+            NEW_VERSION="v0.1.0"
+          else
+            # Remove leading 'v' and split into parts
+            VERSION_STR="${CURRENT_VERSION#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_STR" || true
+
+            # Validate numeric parts (fallback to date-based tag if parsing fails)
+            if printf '%s\n' "$MAJOR" "$MINOR" "$PATCH" | grep -Eq '^[0-9]+$'; then
+              PATCH=$((PATCH + 1))
+              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            else
+              echo "Warning: could not parse '$CURRENT_VERSION' as semver, falling back to timestamped tag"
+              NEW_VERSION="v0.0.0-$(date -u +%Y%m%d%H%M%S)"
+            fi
+          fi
+
+          TAG="$NEW_VERSION"
+          echo "Attempting to create tag $TAG -> $GITHUB_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Auto tag for $GITHUB_SHA"
+
+          # Try pushing the tag. If the push fails because the tag already exists (race),
+          # fall back to a unique tag that includes a short SHA and push that instead.
+          if git push origin "$TAG"; then
+            echo "Pushed $TAG"
+          else
+            SHORT_SHA=$(printf '%s' "$GITHUB_SHA" | cut -c1-7)
+            FALLBACK_TAG="${NEW_VERSION}-${SHORT_SHA}"
+            echo "Push failed; falling back to unique tag $FALLBACK_TAG"
+            # Remove earlier local tag and create the fallback tag
+            git tag -d "$TAG" || true
+            git tag -a "$FALLBACK_TAG" -m "Auto tag (fallback) for $GITHUB_SHA"
+            git push origin "$FALLBACK_TAG"
+            echo "Pushed fallback tag $FALLBACK_TAG"
+          fi
