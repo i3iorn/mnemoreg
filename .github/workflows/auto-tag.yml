@@ -1,9 +1,7 @@
 name: Auto-tag on push to main
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch: {}
 
 permissions:
   contents: write  # required to push a tag
