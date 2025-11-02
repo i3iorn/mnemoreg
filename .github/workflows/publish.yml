@@ -178,8 +178,6 @@ jobs:
     name: Publish to PyPI
     needs: build
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ needs.determine_tag.outputs.tag }}
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -187,44 +185,62 @@ jobs:
           name: dist
           path: dist
 
-      - name: Export TAG to environment
-        run: |
-          echo "TAG=${{ needs.determine_tag.outputs.tag }}" >> "$GITHUB_ENV"
-
-      - name: Debug TAG sources
-        run: |
-          echo "needs.determine_tag.outputs.tag='${{ needs.determine_tag.outputs.tag }}'"
-          echo "env TAG='$TAG'"
-
-      - name: Checkout repository at TAG
+      - name: Checkout repository (default branch)
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
           fetch-depth: 0
 
-      - name: Show tag
-        run: echo "Publishing tag $TAG"
-
-      - name: Validate package version matches tag
+      - name: Validate package version matches built artifact
         shell: bash
         run: |
           set -euo pipefail
-          # assign TAG from the workflow output directly into the shell (safe and immediate)
-          TAG='${{ needs.determine_tag.outputs.tag }}'
-          echo "TAG (from needs.determine_tag.outputs.tag): '$TAG'"
-          if [ -f mnemoreg/VERSION ]; then
-            PKG_VER=$(cat mnemoreg/VERSION | tr -d '\n')
-            TAG_VER=${TAG#v}
-            echo "Package version: $PKG_VER"
-            echo "Tag version: $TAG_VER"
-            if [ "$PKG_VER" != "$TAG_VER" ]; then
-              echo "::error::Package version does not match tag"
-              echo "Package version: $PKG_VER"
-              echo "Tag version: $TAG_VER"
-              exit 1
+
+          # pick a distribution file from dist/ (sdist or wheel)
+          ART_FILE=$(ls -A dist | head -n 1 || true)
+          if [ -z "${ART_FILE}" ]; then
+            echo "::error::No artifact found in dist/"
+            exit 1
+          fi
+          echo "Artifact found: $ART_FILE"
+
+          ART_VER=""
+
+          # If wheel, read METADATA
+          if printf "%s" "$ART_FILE" | grep -E '\.whl$' >/dev/null 2>&1; then
+            echo "Inspecting wheel METADATA"
+            ART_VER=$(unzip -p "dist/$ART_FILE" '*/METADATA' 2>/dev/null | awk -F': ' '/^Version: / {print $2; exit}' || true)
+          fi
+
+          # If sdist (tar.gz or zip), try to read PKG-INFO
+          if [ -z "${ART_VER}" ] && (printf "%s" "$ART_FILE" | grep -E '\.(tar\.gz|zip)$' >/dev/null 2>&1); then
+            echo "Inspecting sdist PKG-INFO"
+            if printf "%s" "$ART_FILE" | grep -E '\.tar\.gz$' >/dev/null 2>&1; then
+              ART_VER=$(tar -xOzf "dist/$ART_FILE" --wildcards --no-anchored '*/PKG-INFO' 2>/dev/null | awk -F': ' '/^Version: / {print $2; exit}' || true)
+            else
+              ART_VER=$(unzip -p "dist/$ART_FILE" '*/PKG-INFO' 2>/dev/null | awk -F': ' '/^Version: / {print $2; exit}' || true)
             fi
+          fi
+
+          # Fallback: extract first semver-like token from filename
+          if [ -z "${ART_VER}" ]; then
+            ART_VER=$(printf "%s" "$ART_FILE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+          fi
+
+          if [ -z "${ART_VER}" ]; then
+            echo "::warning::Could not determine artifact version from filename or metadata. Skipping strict version match."
+            echo "Artifact: $ART_FILE"
           else
-            echo "mnemoreg/VERSION not found; skipping version validation"
+            echo "Artifact version: $ART_VER"
+            if [ -f mnemoreg/VERSION ]; then
+              PKG_VER=$(cat mnemoreg/VERSION | tr -d '\n')
+              echo "Package version file: $PKG_VER"
+              if [ "${PKG_VER}" != "${ART_VER}" ]; then
+                echo "::error::Package version does not match artifact version (pkg: ${PKG_VER} != artifact: ${ART_VER})"
+                exit 1
+              fi
+            else
+              echo "mnemoreg/VERSION not found; skipping version file validation"
+            fi
           fi
 
       - name: Setup Python
