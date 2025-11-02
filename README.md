@@ -1,3 +1,4 @@
+[![CI and Publish](https://github.com/i3iorn/mnemoreg/actions/workflows/publish.yml/badge.svg)](https://github.com/i3iorn/mnemoreg/actions/workflows/publish.yml)
 # mnemoreg
 
 mnemoreg is a tiny thread-safe registry mapping useful for registering
