@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 from threading import RLock
@@ -21,6 +22,16 @@ V = TypeVar("V")
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
+
+
+def locked_method(method: Callable) -> Callable:
+    """Decorator to lock method calls for thread safety."""
+
+    def wrapper(self: "Registry", *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 class Registry(MutableMapping, Generic[K, V]):
@@ -47,89 +58,44 @@ class Registry(MutableMapping, Generic[K, V]):
         2
     """
 
-    def __init__(self, *, lock: Optional[RLock] = None) -> None:
+    def __init__(
+        self, *, lock: Optional[RLock] = None, log_level: int = logging.WARNING
+    ) -> None:
         self._lock: RLock = lock or RLock()
         self._store: Dict[K, V] = {}
-
-    # Mapping protocol
-    def __getitem__(self, key: K) -> V:
-        with self._lock:
-            try:
-                return self._store[key]
-            except KeyError:
-                raise NotRegisteredError(f"Registry key {key!r} is not registered")
-
-    def __setitem__(self, key: K, value: V) -> None:
-        with self._lock:
-            if key in self._store:
-                raise AlreadyRegisteredError(
-                    f"Registry key {key!r} is already registered"
-                )
-            self._store[key] = value
-            logger.debug("Registered %s -> %s", key, type(value))
-
-    def __delitem__(self, key: K) -> None:
-        with self._lock:
-            if key in self._store:
-                del self._store[key]
-                logger.debug("Unregistered %s", key)
-            else:
-                raise NotRegisteredError(f"Registry key {key!r} is not registered")
-
-    def __iter__(self) -> Iterator[K]:
-        with self._lock:
-            return iter(list(self._store.keys()))
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._store)
-
-    def __contains__(self, key: object) -> bool:
-        with self._lock:
-            return key in self._store
-
-    def __repr__(self) -> str:
-        with self._lock:
-            return f"{self.__class__.__name__}({list(self._store.keys())!r})"
+        logger.setLevel(log_level)
 
     def register(self, key: Optional[K] = None) -> Callable[[V], V]:
         def decorator(obj: V) -> V:
             reg_key = key if key is not None else getattr(obj, "__name__", None)
             if reg_key is None:
                 raise ValueError(
-                    "Registry key must be provided or object must have __name__"
+                    "Registry key must be provided or inferable from object"
                 )
+            self._validate_key(reg_key, cant_exist=True)
+
             with self._lock:
-                if reg_key in self._store:
-                    raise AlreadyRegisteredError(
-                        f"Registry key {reg_key!r} is already registered"
-                    )
                 self._store[reg_key] = obj
                 logger.debug("Registered via decorator %s -> %s", reg_key, type(obj))
             return obj
 
         return decorator
 
+    @locked_method
     def clear(self) -> None:
-        with self._lock:
-            self._store.clear()
-            logger.debug("Registry cleared")
+        self._store.clear()
+        logger.debug("Registry cleared")
 
-    def remove(self, key: K) -> None:
-        with self._lock:
-            if key in self._store:
-                del self._store[key]
-                logger.debug("Unregistered %s", key)
-            else:
-                raise NotRegisteredError(f"Registry key {key!r} is not registered")
+    def remove(self, key: K) -> None:  # Alias for __delitem__
+        self.__delitem__(key)
 
+    @locked_method
     def get(self, key: K, default: Any = None) -> Any:
-        with self._lock:
-            return self._store.get(key, default)
+        return self._store.get(key, default)
 
+    @locked_method
     def snapshot(self) -> Dict[K, V]:
-        with self._lock:
-            return dict(self._store)
+        return dict(self._store)
 
     def to_dict(self) -> Dict[K, V]:
         return self.snapshot()
@@ -148,21 +114,68 @@ class Registry(MutableMapping, Generic[K, V]):
     def from_json(cls, s: str, **kwargs: Any) -> "Registry[K, V]":
         return cls.from_dict(json.loads(s, **kwargs))
 
+    @locked_method
+    def update(self, data: Mapping[K, V]) -> None:
+        for k, v in data.items():
+            self._validate_key(k, cant_exist=True)
+            self._store[k] = v
+
     def bulk(self) -> ContextManager["Registry[K, V]"]:
-        class _Ctx:
-            def __init__(self, r: "Registry[K, V]"):
-                self._r: "Registry[K, V]" = r
-                self._lock: RLock = r._lock
-
-            def __enter__(self) -> "Registry[K, V]":
-                self._lock.acquire()
-                return self._r
-
-            def __exit__(self, exc_type, exc, tb):
+        @contextlib.contextmanager
+        def _bulk_ctx():
+            self._lock.acquire()
+            try:
+                yield self
+            finally:
                 self._lock.release()
-                return False
 
-        return _Ctx(self)
+        return _bulk_ctx()
+
+    def _validate_key(
+        self, key: K, cant_exist: bool = False, must_exist: bool = False
+    ) -> None:
+        if not isinstance(key, str):
+            raise TypeError(f"Registry key must be a string, got {type(key)}")
+        elif not key:
+            raise ValueError("Registry key cannot be an empty string")
+        elif any(c.isspace() for c in key):
+            raise ValueError("Registry key cannot contain whitespace characters")
+        elif cant_exist and key in self._store.keys():
+            raise AlreadyRegisteredError(f"Registry key {key!r} is already registered")
+        elif must_exist and key not in self._store.keys():
+            raise NotRegisteredError(f"Registry key {key!r} is not registered")
+
+    @locked_method
+    def __getitem__(self, key: K) -> V:
+        self._validate_key(key, must_exist=True)
+        return self._store[key]
+
+    @locked_method
+    def __setitem__(self, key: K, value: V) -> None:
+        self._validate_key(key, cant_exist=True)
+        self._store[key] = value
+        logger.debug("Registered %s -> %s", key, type(value))
+
+    @locked_method
+    def __delitem__(self, key: K) -> None:
+        self._validate_key(key, must_exist=True)
+        del self._store[key]
+
+    @locked_method
+    def __iter__(self) -> Iterator[K]:
+        return iter(list(self._store.keys()))
+
+    @locked_method
+    def __len__(self) -> int:
+        return len(self._store)
+
+    @locked_method
+    def __contains__(self, key: object) -> bool:
+        return key in self._store
+
+    @locked_method
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({list(self._store.keys())!r})"
 
     def __getstate__(self):
         return {"_store": dict(self._store)}
