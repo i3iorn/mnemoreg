@@ -10,10 +10,9 @@ from pathlib import Path
 from typing import Optional
 
 from mnemoreg.core import (
-    AlreadyRegisteredError,
-    NotRegisteredError,
     Registry,
 )
+from mnemoreg.exceptions import AlreadyRegisteredError, NotRegisteredError
 
 
 def _read_version_file() -> Optional[str]:
