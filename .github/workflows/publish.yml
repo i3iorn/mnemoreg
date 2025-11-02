@@ -172,9 +172,6 @@ jobs:
     name: Publish to PyPI
     needs: build
     runs-on: ubuntu-latest
-    env:
-      MNEMOREG_PY_PI_TOKEN: ${{ secrets.MNEMOREG_PY_PI_TOKEN }}
-    if: ${{ env.MNEMOREG_PY_PI_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -191,9 +188,10 @@ jobs:
       - name: Validate and publish
         run: |
           python -m twine check dist/*
-        # publish using the pypa action
+
       - name: Upload to PyPI
+        if: ${{ secrets.MNEMOREG_PY_PI_TOKEN != '' }}
         uses: pypa/gh-action-pypi-publish@v1
         with:
           user: __token__
-          password: ${{ env.MNEMOREG_PY_PI_TOKEN }}
+          password: ${{ secrets.MNEMOREG_PY_PI_TOKEN }}
