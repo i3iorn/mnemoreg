@@ -187,6 +187,15 @@ jobs:
           name: dist
           path: dist
 
+      - name: Export TAG to environment
+        run: |
+          echo "TAG=${{ needs.determine_tag.outputs.tag }}" >> "$GITHUB_ENV"
+
+      - name: Debug TAG sources
+        run: |
+          echo "needs.determine_tag.outputs.tag='${{ needs.determine_tag.outputs.tag }}'"
+          echo "env TAG='$TAG'"
+
       - name: Checkout repository at TAG
         uses: actions/checkout@v4
         with:
@@ -199,6 +208,10 @@ jobs:
       - name: Validate package version matches tag
         shell: bash
         run: |
+          set -euo pipefail
+          # assign TAG from the workflow output directly into the shell (safe and immediate)
+          TAG='${{ needs.determine_tag.outputs.tag }}'
+          echo "TAG (from needs.determine_tag.outputs.tag): '$TAG'"
           if [ -f mnemoreg/VERSION ]; then
             PKG_VER=$(cat mnemoreg/VERSION | tr -d '\n')
             TAG_VER=${TAG#v}
