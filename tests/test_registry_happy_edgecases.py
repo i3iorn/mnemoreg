@@ -14,11 +14,8 @@ def test_empty_registry_len_and_repr_are_consistent():
 
 def test_register_empty_string_key():
     r = Registry[str, int]()
-    r[""] = 123
-    assert r[""] == 123
-    assert "" in r
-    del r[""]
-    assert "" not in r
+    with pytest.raises(ValueError):
+        r[""] = 123
 
 
 def test_register_special_character_keys():

@@ -44,7 +44,7 @@ def test_register_with_non_string_key_type_hint_violation():
     r = Registry[str, int]()
     # Type hint violation—should still technically work but we test safety expectations
     r["1"] = 1
-    with pytest.raises(NotRegisteredError):
+    with pytest.raises(TypeError):
         _ = r[1]  # using int instead of str
 
 
