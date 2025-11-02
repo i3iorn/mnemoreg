@@ -1,6 +1,7 @@
 import contextlib
 import json
 import logging
+from enum import IntEnum
 from threading import RLock
 from typing import (
     Any,
@@ -34,6 +35,12 @@ def locked_method(method: Callable) -> Callable:
     return wrapper
 
 
+class OverwritePolicy(IntEnum):
+    FORBID = 0
+    ALLOW = 1
+    WARN = 2
+
+
 class Registry(MutableMapping, Generic[K, V]):
     """
     Thread-safe registry implementing MutableMapping.
@@ -59,10 +66,15 @@ class Registry(MutableMapping, Generic[K, V]):
     """
 
     def __init__(
-        self, *, lock: Optional[RLock] = None, log_level: int = logging.WARNING
+        self,
+        *,
+        lock: Optional[RLock] = None,
+        log_level: int = logging.WARNING,
+        overwrite_policy: int = OverwritePolicy.FORBID,
     ) -> None:
         self._lock: RLock = lock or RLock()
         self._store: Dict[K, V] = {}
+        self._overwrite_policy = overwrite_policy
         logger.setLevel(log_level)
 
     def register(self, key: Optional[K] = None) -> Callable[[V], V]:
@@ -72,7 +84,7 @@ class Registry(MutableMapping, Generic[K, V]):
                 raise ValueError(
                     "Registry key must be provided or inferable from object"
                 )
-            self._validate_key(reg_key, cant_exist=True)
+            self._validate_key(reg_key, cant_exist=self._overwrite_policy == 0)
 
             with self._lock:
                 self._store[reg_key] = obj
@@ -81,13 +93,18 @@ class Registry(MutableMapping, Generic[K, V]):
 
         return decorator
 
+    def unregister(self, key: K) -> None:
+        """Alias for __delitem__ to unregister a key."""
+        self.__delitem__(key)
+
+    def remove(self, key: K) -> None:
+        """Alias for __delitem__ to remove a key."""
+        self.__delitem__(key)
+
     @locked_method
     def clear(self) -> None:
         self._store.clear()
         logger.debug("Registry cleared")
-
-    def remove(self, key: K) -> None:  # Alias for __delitem__
-        self.__delitem__(key)
 
     @locked_method
     def get(self, key: K, default: Any = None) -> Any:
@@ -117,7 +134,7 @@ class Registry(MutableMapping, Generic[K, V]):
     @locked_method
     def update(self, data: Mapping[K, V]) -> None:
         for k, v in data.items():
-            self._validate_key(k, cant_exist=True)
+            self._validate_key(k, cant_exist=self._overwrite_policy == 0)
             self._store[k] = v
 
     def bulk(self) -> ContextManager["Registry[K, V]"]:
@@ -152,7 +169,7 @@ class Registry(MutableMapping, Generic[K, V]):
 
     @locked_method
     def __setitem__(self, key: K, value: V) -> None:
-        self._validate_key(key, cant_exist=True)
+        self._validate_key(key, cant_exist=self._overwrite_policy == 0)
         self._store[key] = value
         logger.debug("Registered %s -> %s", key, type(value))
 
