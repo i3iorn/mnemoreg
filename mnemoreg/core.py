@@ -72,10 +72,20 @@ class Registry(MutableMapping, Generic[K, V]):
         log_level: int = logging.WARNING,
         overwrite_policy: int = OverwritePolicy.FORBID,
     ) -> None:
+        # Verify  that lock has the correct methods
+        if lock is not None and not all(
+            hasattr(lock, method) for method in ("__enter__", "__exit__")
+        ):
+            raise TypeError("lock must be a threading.RLock or similar object")
+
+        if not (50 >= log_level >= 0):
+            raise ValueError("log_level must be a valid logging level between 0 and 50")
+
         self._lock: RLock = lock or RLock()
         self._store: Dict[K, V] = {}
-        self._overwrite_policy = overwrite_policy
+        self._overwrite_policy = OverwritePolicy(overwrite_policy)
         logger.setLevel(log_level)
+        print(logger.getEffectiveLevel())
 
     def register(self, key: Optional[K] = None) -> Callable[[V], V]:
         def decorator(obj: V) -> V:
