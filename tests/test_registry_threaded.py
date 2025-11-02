@@ -1,8 +1,12 @@
 import threading
 
+import pytest
+
 from mnemoreg import AlreadyRegisteredError, NotRegisteredError, Registry
 
-# Module-level helpers to reduce per-function complexity (fix C901)
+pytestmark = pytest.mark.filterwarnings(
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning"
+)
 
 
 def _writer(reg: Registry, start: int, end: int):
