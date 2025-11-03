@@ -148,9 +148,6 @@ class Registry(MutableMapping, Generic[K, V]):
     def get(self, key: K, default: Any = None) -> Any:
         """
         Get the value for the given key, or return default if not found.
-
-        Raises:
-            TypeError: If the key is not a valid string.
         """
         return self._store.get(key, default)
 
