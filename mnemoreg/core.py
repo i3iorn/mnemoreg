@@ -85,7 +85,6 @@ class Registry(MutableMapping, Generic[K, V]):
         self._store = store or MemoeryStorage()
         self._overwrite_policy = OverwritePolicy(overwrite_policy)
         logger.setLevel(log_level)
-        print(logger.getEffectiveLevel())
 
     def register(self, key: Optional[K] = None) -> Callable[[V], V]:
         """
