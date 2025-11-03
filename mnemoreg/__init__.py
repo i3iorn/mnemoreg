@@ -9,6 +9,7 @@ from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Optional
 
+from mnemoreg._storage import StorageProtocol
 from mnemoreg.core import (
     Registry,
 )
@@ -51,4 +52,5 @@ __all__ = [
     "AlreadyRegisteredError",
     "NotRegisteredError",
     "__version__",
+    "StorageProtocol",
 ]

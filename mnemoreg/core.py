@@ -9,17 +9,15 @@ from typing import (
     ContextManager,
     Dict,
     Generic,
-    Iterator,
+    Iterable,
     Mapping,
     MutableMapping,
     Optional,
-    TypeVar,
 )
 
+from mnemoreg._storage import MemoeryStorage, StorageProtocol
+from mnemoreg._types import K, V
 from mnemoreg.exceptions import AlreadyRegisteredError, NotRegisteredError
-
-K = TypeVar("K", bound=str)
-V = TypeVar("V")
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -54,15 +52,16 @@ class Registry(MutableMapping, Generic[K, V]):
         NotRegisteredError: If attempting to access or delete a key that does not exist.
 
     Examples:
-        >>> registry = Registry[str, int]()
-        >>> registry['a'] = 1
-        >>> registry['a']
+        >>> from typing import Callable
+        >>> registry = Registry[str, Callable[[int], int]]()
+        >>> registry['a'] = (lambda x: x)  # store a callable
+        >>> registry['a'](1)
         1
         >>> @registry.register('b')
-        ... def value_b():
-        ...     return 2
-        >>> registry['b']()
-        2
+        ... def value_b(x: int) -> int:
+        ...     return x + 1
+        >>> registry['b'](2)
+        3
     """
 
     def __init__(
@@ -71,6 +70,7 @@ class Registry(MutableMapping, Generic[K, V]):
         lock: Optional[RLock] = None,
         log_level: int = logging.WARNING,
         overwrite_policy: int = OverwritePolicy.FORBID,
+        store: Optional[StorageProtocol] = None,
     ) -> None:
         # Verify  that lock has the correct methods
         if lock is not None and not all(
@@ -81,8 +81,11 @@ class Registry(MutableMapping, Generic[K, V]):
         if not (50 >= log_level >= 0):
             raise ValueError("log_level must be a valid logging level between 0 and 50")
 
+        if not isinstance(store, StorageProtocol):
+            raise TypeError("store must implement the StorageProtocol interface")
+
         self._lock: RLock = lock or RLock()
-        self._store: Dict[K, V] = {}
+        self._store = store or MemoeryStorage()
         self._overwrite_policy = OverwritePolicy(overwrite_policy)
         logger.setLevel(log_level)
         print(logger.getEffectiveLevel())
@@ -111,7 +114,8 @@ class Registry(MutableMapping, Generic[K, V]):
             self._validate_key(reg_key, cant_exist=self._overwrite_policy == 0)
 
             with self._lock:
-                self._store[reg_key] = obj
+                # store under the resolved reg_key
+                self._store.set(reg_key, obj)
                 logger.debug("Registered via decorator %s -> %s", reg_key, type(obj))
             return obj
 
@@ -136,7 +140,7 @@ class Registry(MutableMapping, Generic[K, V]):
 
     @locked_method
     def snapshot(self) -> Dict[K, V]:
-        return dict(self._store)
+        return self._store.to_dict()
 
     def to_dict(self) -> Dict[K, V]:
         return self.snapshot()
@@ -159,7 +163,7 @@ class Registry(MutableMapping, Generic[K, V]):
     def update(self, data: Mapping[K, V]) -> None:
         for k, v in data.items():
             self._validate_key(k, cant_exist=self._overwrite_policy == 0)
-            self._store[k] = v
+            self._store.set(k, v)
 
     def bulk(self) -> ContextManager["Registry[K, V]"]:
         @contextlib.contextmanager
@@ -189,21 +193,24 @@ class Registry(MutableMapping, Generic[K, V]):
     @locked_method
     def __getitem__(self, key: K) -> V:
         self._validate_key(key, must_exist=True)
-        return self._store[key]
+        res = self._store.get(key)
+        if res is None:
+            raise NotRegisteredError(f"Registry key {key!r} is not registered")
+        return res
 
     @locked_method
     def __setitem__(self, key: K, value: V) -> None:
         self._validate_key(key, cant_exist=self._overwrite_policy == 0)
-        self._store[key] = value
+        self._store.set(key, value)
         logger.debug("Registered %s -> %s", key, type(value))
 
     @locked_method
     def __delitem__(self, key: K) -> None:
         self._validate_key(key, must_exist=True)
-        del self._store[key]
+        self._store.delete(key)
 
     @locked_method
-    def __iter__(self) -> Iterator[K]:
+    def __iter__(self) -> Iterable[K]:
         return iter(list(self._store.keys()))
 
     @locked_method
@@ -219,8 +226,8 @@ class Registry(MutableMapping, Generic[K, V]):
         return f"{self.__class__.__name__}({list(self._store.keys())!r})"
 
     def __getstate__(self):
-        return {"_store": dict(self._store)}
+        return {"_store": self._store.to_dict()}
 
     def __setstate__(self, state):
         self._lock = RLock()
-        self._store = state.get("_store", {})
+        self._store.update(state.get("_store", {}))
