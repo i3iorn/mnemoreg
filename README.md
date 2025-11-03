@@ -160,13 +160,15 @@ filters to the affected test modules.
 Contributions are welcome. A suggested workflow:
 
 1. Open an issue to discuss larger changes.
-2. Branch from `main` (or `master`) for new work.
+2. Branch from `master` for new work.
 3. Add tests for new behaviour or bug fixes.
 4. Run the test suite and make sure everything passes.
 5. Create a pull request with a clear description of the changes.
 
 Coding style: keep changes small and well-tested. Prefer plain stdlib
-implementations unless there is a clear productivity win from a dependency.
+implementations unless there is a clear productivity win and negligeable overhead from a dependency.
+
+See `CONTRIBUTING.md` for more details.
 
 ## Troubleshooting
 - AlreadyRegisteredError during concurrent writes: your test or production
