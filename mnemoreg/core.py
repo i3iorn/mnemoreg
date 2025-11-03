@@ -81,9 +81,6 @@ class Registry(MutableMapping, Generic[K, V]):
         if not (50 >= log_level >= 0):
             raise ValueError("log_level must be a valid logging level between 0 and 50")
 
-        if not isinstance(store, StorageProtocol):
-            raise TypeError("store must implement the StorageProtocol interface")
-
         self._lock: RLock = lock or RLock()
         self._store = store or MemoeryStorage()
         self._overwrite_policy = OverwritePolicy(overwrite_policy)
