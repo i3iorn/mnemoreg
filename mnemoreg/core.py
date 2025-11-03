@@ -88,6 +88,20 @@ class Registry(MutableMapping, Generic[K, V]):
         print(logger.getEffectiveLevel())
 
     def register(self, key: Optional[K] = None) -> Callable[[V], V]:
+        """
+        Decorator to register an object with the given key.
+
+        Args:
+            key: The key to register the object under. If None, the object's
+                 `__name__` attribute will be used.
+        Returns:
+            A decorator that registers the object and returns it.
+
+        Raises:
+            ValueError: If the key is not provided and cannot be inferred
+                        from the object.
+        """
+
         def decorator(obj: V) -> V:
             reg_key = key if key is not None else getattr(obj, "__name__", None)
             if reg_key is None:
