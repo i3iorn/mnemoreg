@@ -72,7 +72,25 @@ class Registry(MutableMapping, Generic[K, V]):
         overwrite_policy: int = OverwritePolicy.FORBID,
         store: Optional[StorageProtocol] = None,
     ) -> None:
-        # Verify  that lock has the correct methods
+        """
+        Initialize the Registry.
+
+        Args:
+            lock: An optional threading.RLock or similar object for thread safety.
+            log_level: Logging level for the registry logger.
+            overwrite_policy: Policy for handling existing keys:
+                0 - Forbid overwriting (default)
+                1 - Allow overwriting
+                2 - Warn on overwriting
+            store: An optional storage backend implementing StorageProtocol.
+
+        Raises:
+            TypeError: If the provided lock does not implement context manager methods.
+            ValueError: If log_level is not a valid logging level.
+
+        Example:
+            registry = Registry[str, int](log_level=logging.DEBUG, overwrite_policy=1)
+        """
         if lock is not None and not all(
             hasattr(lock, method) for method in ("__enter__", "__exit__")
         ):
@@ -118,51 +136,100 @@ class Registry(MutableMapping, Generic[K, V]):
 
         return decorator
 
-    def unregister(self, key: K) -> None:
-        """Alias for __delitem__ to unregister a key."""
-        self.__delitem__(key)
-
-    def remove(self, key: K) -> None:
-        """Alias for __delitem__ to remove a key."""
-        self.__delitem__(key)
-
     @locked_method
     def clear(self) -> None:
+        """
+        Clear all entries from the registry.
+        """
         self._store.clear()
         logger.debug("Registry cleared")
 
     @locked_method
     def get(self, key: K, default: Any = None) -> Any:
+        """
+        Get the value for the given key, or return default if not found.
+
+        Raises:
+            TypeError: If the key is not a valid string.
+        """
         return self._store.get(key, default)
 
     @locked_method
     def snapshot(self) -> Dict[K, V]:
+        """
+        Get a snapshot of the current registry as a dictionary.
+
+        Raises:
+            TypeError: If the registry contains non-serializable values.
+        """
         return self._store.to_dict()
 
     def to_dict(self) -> Dict[K, V]:
+        """
+        Convert the registry to a dictionary.
+
+        Raises:
+            TypeError: If the registry contains non-serializable values.
+        """
         return self.snapshot()
 
     @classmethod
     def from_dict(cls, data: Mapping[K, V]) -> "Registry[K, V]":
+        """
+        Create a Registry from a dictionary.
+
+        Raises:
+            TypeError: If the input data is not a mapping.
+        """
         r = cls()
         with r._lock:
             r._store.update(dict(data))
         return r
 
     def to_json(self, **kwargs: Any) -> str:
+        """
+        Serialize the registry to a JSON string.
+
+        Raises:
+            TypeError: If the registry contains non-serializable values.
+        """
         return json.dumps(self.to_dict(), **kwargs)
 
     @classmethod
     def from_json(cls, s: str, **kwargs: Any) -> "Registry[K, V]":
+        """
+        Deserialize a JSON string to create a Registry.
+
+        Raises:
+            json.JSONDecodeError: If the input string is not valid JSON.
+        """
         return cls.from_dict(json.loads(s, **kwargs))
 
     @locked_method
     def update(self, data: Mapping[K, V]) -> None:
+        """
+        Update the registry with multiple key-value pairs.
+
+        Raises:
+            TypeError: If any key is not a valid string.
+        """
         for k, v in data.items():
             self._validate_key(k, cant_exist=self._overwrite_policy == 0)
             self._store.set(k, v)
 
     def bulk(self) -> ContextManager["Registry[K, V]"]:
+        """
+        Context manager for bulk operations on the registry.
+
+        Returns:
+            A context manager that yields the registry for bulk operations.
+
+        Usage:
+            with registry.bulk() as reg:
+                reg['key1'] = value1
+                reg['key2'] = value2
+        """
+
         @contextlib.contextmanager
         def _bulk_ctx():
             self._lock.acquire()
