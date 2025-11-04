@@ -1,10 +1,17 @@
-from typing import Any, Dict, Generic, Iterator, Mapping, Protocol, runtime_checkable
+from typing import (
+    Dict,
+    Iterator,
+    Mapping,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
 
 from mnemoreg._types import K, V
 
 
 @runtime_checkable
-class StorageProtocol(Protocol, Generic[K, V]):
+class StorageProtocol(Protocol[K, V]):
     """Minimal protocol describing the storage interface expected by Registry.
 
     Only the methods and members that `mnemoreg.core.Registry` uses are
@@ -14,7 +21,9 @@ class StorageProtocol(Protocol, Generic[K, V]):
     def set(self, key: K, value: V) -> None:  # pragma: no cover - interface
         ...
 
-    def get(self, key: K, default: Any = None) -> Any:  # pragma: no cover - interface
+    def get(
+        self, key: K, default: Optional[V] = None
+    ) -> Optional[V]:  # pragma: no cover - interface
         ...
 
     def delete(self, key: K) -> None:  # pragma: no cover - interface

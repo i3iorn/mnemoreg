@@ -1,189 +1,157 @@
-[![CI and Publish](https://github.com/i3iorn/mnemoreg/actions/workflows/publish.yml/badge.svg)](https://github.com/i3iorn/mnemoreg/actions/workflows/publish.yml)
-# mnemoreg
+mnemoreg
+========
 
-mnemoreg is a tiny, dependency-free, thread-safe registry mapping useful for registering
-callables and other values by string keys. It's intentionally small and
-suitable for embedding in other projects. It uses only the Python standard
-library and aims to provide a predictable, easy-to-use interface for
-shared, named objects.
+A tiny, dependency-free, thread-safe registry mapping useful for registering
+callables and values by string keys. Designed to be embedded in other projects
+or used as a small standalone utility.
 
-## Table of Contents
-- [Highlights](#highlights)
-- [Installation](#installation)
-- [Quick start](#quick-start)
-- [API summary](#api-summary)
-- [Thread-safety and testing notes](#thread-safety-and-testing-notes)
-- [Serialization](#serialization)
-- [Development and testing](#development-and-testing)
-- [Contributing](#contributing)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
+Key points
+- Small, stdlib-only implementation.
+- Thread-safe (uses RLock for mutations).
+- Simple decorator-based registration for callables.
 
-## Highlights
-- Small, single-file registry implementation (see `mnemoreg/core.py`).
-- Thread-safe operations using `threading.RLock` and explicit `bulk()` context.
-- Decorator-based registration for callables.
-- Snapshot and (de)serialization helpers.
-- Configurable overwrite behaviour (forbid / allow / warn).
+Quick facts
+- Package exports: `Registry`, `AlreadyRegisteredError`, `NotRegisteredError`, `StorageProtocol`, and `__version__`.
+- Main implementation: `mnemoreg/core.py`.
+- Storage helpers live in `mnemoreg/_storage` (default in-memory backend is exported as `MemoeryStorage` — note: the name contains a historical typo).
 
-## Installation
-Install from PyPI:
+Install
+-------
+From PyPI:
 
-```bash
-pip install mnemoreg
-```
+    pip install mnemoreg
 
-Or install from source:
+From source (editable/development):
 
-```bash
-git clone https://github.com/i3iorn/mnemoreg.git
-cd mnemoreg
-pip install .
-```
+    git clone https://github.com/i3iorn/mnemoreg.git
+    cd mnemoreg
+    python -m venv .venv
+    # Windows cmd.exe:
+    .venv\Scripts\activate
+    # PowerShell:
+    .venv\Scripts\Activate.ps1
+    # Unix/macOS:
+    source .venv/bin/activate
 
-## Quick start
+    pip install -e .
+    # dev extras:
+    pip install -e .[dev]
+
+Usage (quick)
+-------------
+The `Registry` behaves like a mapping from string keys to values. Examples:
 
 ```python
-from mnemoreg import Registry
+from mnemoreg import Registry, OverwritePolicy
 
-# Create a registry typed for string keys and int values
 r = Registry[str, int]()
-r["one"] = 1
-print(r["one"])  # 1
+r['one'] = 1
+assert r['one'] == 1
 
-# Register a callable under an explicit key
-@r.register("plus")
-def plus(x):
+# decorator registration (explicit key)
+@r.register('plus')
+def plus(x: int) -> int:
     return x + 1
 
-print(r["plus"](4))  # 5
+assert r['plus'](4) == 5
 
-# Register using the function name as the key
+# decorator registration (uses function.__name__ when key omitted)
 @r.register()
-def multiply(x, y):
+def multiply(x: int, y: int) -> int:
     return x * y
 
-print(r["multiply"](3, 4))  # 12
+assert r['multiply'](3, 4) == 12
 
-# Use the bulk context manager to perform multiple operations under the same lock
+# bulk operations (acquires the same lock for the block)
 with r.bulk():
-    r["a"] = 1
-    r["b"] = 2
+    r['a'] = 1
+    r['b'] = 2
 
-# Create a shallow snapshot
-snap = r.snapshot()
-print(snap)
-```
+# removal
+del r['a']  # there is no `unregister` helper; use deletion
 
-See the `tests/` directory for many additional examples and edge cases.
-
-## API summary
-This is a concise summary — see `mnemoreg/core.py` docstrings for full details.
-
-- `Registry(*, lock: Optional[RLock]=None, log_level: int=logging.WARNING, overwrite_policy: int=OverwritePolicy.FORBID)` — constructor.
-- Mapping-like methods: `__getitem__`, `__setitem__`, `__delitem__`, `__iter__`, `__len__`, `__contains__`.
-- `register(key: Optional[str] = None)` — decorator to register callables/objects.
-- `get(key, default=None)`, `snapshot()`, `to_dict()`.
-- `from_dict(mapping)`, `from_json(s)` — classmethods to build from serialized data.
-- `to_json(**kwargs)` — serialize to JSON string.
-- `bulk()` — context manager that acquires the registry lock for batched operations.
-- `update(mapping)`, `clear()`, `unregister(key)`, `remove(key)`.
-
-Exceptions raised:
-- `AlreadyRegisteredError` — when a key must not already exist but does.
-- `NotRegisteredError` — when accessing/deleting a key that does not exist.
-
-Overwrite behaviour is controlled by `OverwritePolicy` enum (FORBID=0, ALLOW=1, WARN=2).
-
-## Thread-safety and testing notes
-mnemoreg is guarded by a `threading.RLock` for mutating operations. Iteration and
-`snapshot()` return shallow copies to avoid exposing internal state to concurrent
-mutation.
-
-If you write tests that intentionally start background threads which raise
-exceptions (for example, tests that exercise concurrency failure modes), pytest
-will surface a `PytestUnhandledThreadExceptionWarning` for uncaught exceptions
-in threads. To hide that specific warning only for the threaded test module,
-add this module-level filter to `tests/test_registry_threaded.py`:
-
-```python
-# tests/test_registry_threaded.py
-import pytest
-
-# suppress only the thread-unhandled warning for this module
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::pytest.PytestUnhandledThreadExceptionWarning"
-)
-```
-
-For the `pytest-asyncio` deprecation warning shown by newer versions:
-configure the default fixture loop scope in your pytest configuration. For
-example, in `pyproject.toml`:
-
-```toml
-[tool.pytest.ini_options]
-asyncio_mode = "strict"
-asyncio_default_fixture_loop_scope = "function"
-```
-
-This sets the asyncio fixture loop scope explicitly and avoids the
-`PytestDeprecationWarning` about the unset `asyncio_default_fixture_loop_scope`.
-
-## Serialization
-The registry supports basic JSON-friendly (de)serialization via `to_dict`,
-`from_dict`, `to_json`, and `from_json`. These operate on shallow copies of the
-internal store, so custom objects will need their own serialization logic before
-being stored if you need to persist them as JSON.
-
-Example:
-
-```python
-r = Registry[str, int]()
-r["one"] = 1
-s = r.to_json()
+# snapshots / serialization
+snap = r.snapshot()      # shallow dict copy
+s = r.to_json()          # JSON string (shallow)
 new_r = Registry.from_json(s)
 ```
 
-## Development and testing
-Run tests with:
+API / behavior summary
+----------------------
+- class Registry(Generic[K, V])
+  - Mapping-like: `__getitem__`, `__setitem__`, `__delitem__`, `__iter__`, `__len__`, `__contains__`.
+  - `register(key: Optional[str] = None)` — decorator to register functions/values.
+  - `get(key, default=None)`, `snapshot()`, `to_dict()` — read helpers.
+  - `from_dict(mapping)`, `from_json(s)` — classmethods to build a Registry from serialized data.
+  - `to_json(**kwargs)` — serialize shallowly to JSON.
+  - `bulk()` — context manager that acquires the registry lock for batched operations.
+  - `update(mapping)`, `clear()`.
+
+- Overwrite behavior: controlled by `OverwritePolicy` (FORBID = 0, ALLOW = 1, WARN = 2). The default is FORBID.
+
+- Exceptions: `AlreadyRegisteredError`, `NotRegisteredError`.
+
+Notes and caveats (important)
+- The public API does not include `unregister()` or `remove()` — remove entries with `del registry[key]`.
+- The storage package exports `MemoeryStorage` (typo). It's internal and only relevant when passing a custom `store=` to `Registry`.
+- `Registry` expects string keys (type bound K=str) and will raise on invalid keys (empty, contains whitespace, or wrong type).
+
+Development
+-----------
+This project uses pytest, ruff, black, isort, mypy, and pre-commit hooks.
+
+Typical local developer setup:
 
 ```bash
-python -m pytest -vv
+python -m venv .venv
+# activate the venv
+pip install -e .[dev]
 ```
 
-The test suite covers single-threaded and concurrent scenarios. If you see
-spurious warnings from async fixtures or thread exceptions while developing,
-use the options described above to configure pytest or narrow the warning
-filters to the affected test modules.
+Run tests:
 
-## Contributing
-Contributions are welcome. A suggested workflow:
+```bash
+python -m pytest -q
+```
 
-1. Open an issue to discuss larger changes.
-2. Branch from `main` (or `master`) for new work.
-3. Add tests for new behaviour or bug fixes.
-4. Run the test suite and make sure everything passes.
-5. Create a pull request with a clear description of the changes.
+Format / lint / checks (examples):
 
-Coding style: keep changes small and well-tested. Prefer plain stdlib
-implementations unless there is a clear productivity win from a dependency.
+```bash
+ruff check --fix .
+isort --profile black .
+black .
+pre-commit run --all-files
+python -m mypy mnemoreg --ignore-missing-imports
+```
 
-## Troubleshooting
-- AlreadyRegisteredError during concurrent writes: your test or production
-  logic may be attempting to re-register a key; consider `OverwritePolicy.ALLOW`
-  or adjust the test flow to avoid races.
-- `PytestUnhandledThreadExceptionWarning`: see the module-level `pytestmark`
-  example above to suppress the warning only in the threaded test module.
-- `pytest-asyncio` deprecation warnings: set
-  `asyncio_default_fixture_loop_scope` in pytest config as shown above.
+Pre-commit is configured in `.pre-commit-config.yaml`, and mypy/ruff settings live in `pyproject.toml`.
 
-If you hit something not covered here, please open an issue with a small
-reproduction.
+CI & publishing
+----------------
+There are GitHub Actions workflows under `.github/workflows/`.
 
-## License
-mnemoreg is licensed under the MIT License — see the `LICENSE` file for
-details.
+The `publish.yml` workflow (current behavior):
+- Triggers on: push to `main` or `master`, tag pushes matching `v*.*.*`, pull requests to `main`/`master`, and `workflow_dispatch`.
+- The workflow runs tests, then attempts to determine/create a semver tag and push it, builds distributions, and (optionally) uploads to PyPI if the `MNEMOREG_PY_PI_TOKEN` secret is configured.
 
----
+If you don't want to trigger the publish flow or accidental publishes:
+- Work from a fork and open PRs from the fork — forks cannot push tags to the upstream repo and won't have the PyPI secret.
+- Work on non-main branches; pushes to non-main branches do not trigger the `push` trigger (but PRs to `master` do trigger `pull_request`).
+- Repository maintainers can tighten the workflow triggers (recommended): e.g. remove `pull_request` trigger, only run publish on explicit tag push or manual `workflow_dispatch`.
+- Ensure `MNEMOREG_PY_PI_TOKEN` is never added unless you intend to publish.
 
-Maintainers: i3iorn
+Contributing
+------------
+Please follow the project's code style (black/ruff/isort) and add tests for new behavior.
+Suggested flow for external contributors:
+- Fork the repo.
+- Create a feature branch in your fork and open a PR to `master`.
+- Add tests and run the test suite locally.
+
+License
+-------
+MIT — see the `LICENSE` file.
+
+Maintainers
+-----------
+i3iorn
