@@ -1,6 +1,7 @@
 import contextlib
 import json
 import logging
+from dataclasses import dataclass
 from enum import IntEnum
 from threading import RLock
 from typing import (
@@ -10,9 +11,11 @@ from typing import (
     Dict,
     Generic,
     Iterable,
+    Iterator,
     Mapping,
     MutableMapping,
     Optional,
+    cast,
 )
 
 from mnemoreg._storage import MemoeryStorage, StorageProtocol
@@ -23,10 +26,20 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
 
-def locked_method(method: Callable) -> Callable:
+def _make_default_store() -> StorageProtocol[K, V]:
+    """Create a default StorageProtocol[K, V] instance.
+
+    Construct the concrete MemoeryStorage() at runtime and cast it to the
+    protocol with generics so the module-level type inference remains
+    precise. Localizes the unavoidable cast to one place.
+    """
+    return cast(StorageProtocol[K, V], MemoeryStorage())
+
+
+def locked_method(method: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator to lock method calls for thread safety."""
 
-    def wrapper(self: "Registry", *args: Any, **kwargs: Any) -> Any:
+    def wrapper(self: "Registry[K, V]", *args: Any, **kwargs: Any) -> Any:
         with self._lock:
             return method(self, *args, **kwargs)
 
@@ -39,7 +52,19 @@ class OverwritePolicy(IntEnum):
     WARN = 2
 
 
-class Registry(MutableMapping, Generic[K, V]):
+@dataclass
+class StoredItem(Generic[V]):
+    """Wrapper for stored values returned by `snapshot()`.
+
+    Keeping a tiny dataclass lets us return a concrete, well-typed object
+    from `snapshot()` rather than exposing Any that may flow from protocol
+    call sites.
+    """
+
+    value: V
+
+
+class Registry(MutableMapping[K, V], Generic[K, V]):
     """
     Thread-safe registry implementing MutableMapping.
 
@@ -70,7 +95,7 @@ class Registry(MutableMapping, Generic[K, V]):
         lock: Optional[RLock] = None,
         log_level: int = logging.WARNING,
         overwrite_policy: int = OverwritePolicy.FORBID,
-        store: Optional[StorageProtocol] = None,
+        store: Optional[StorageProtocol[K, V]] = None,
     ) -> None:
         """
         Initialize the Registry.
@@ -100,7 +125,11 @@ class Registry(MutableMapping, Generic[K, V]):
             raise ValueError("log_level must be a valid logging level between 0 and 50")
 
         self._lock: RLock = lock or RLock()
-        self._store = store or MemoeryStorage()
+        # Use a typed helper so the concrete MemoeryStorage() construction
+        # does not introduce Any/Union into the annotated type of self._store.
+        self._store: StorageProtocol[K, V] = (
+            store if store is not None else _make_default_store()
+        )
         self._overwrite_policy = OverwritePolicy(overwrite_policy)
         logger.setLevel(log_level)
         print(logger.getEffectiveLevel())
@@ -145,33 +174,33 @@ class Registry(MutableMapping, Generic[K, V]):
         logger.debug("Registry cleared")
 
     @locked_method
-    def get(self, key: K, default: Any = None) -> Any:
+    def get(self, key: K, default: Optional[V] = None) -> Optional[V]:
         """
         Get the value for the given key, or return default if not found.
-
-        Raises:
-            TypeError: If the key is not a valid string.
         """
         return self._store.get(key, default)
 
     @locked_method
-    def snapshot(self) -> Dict[K, V]:
+    def snapshot(self) -> Dict[K, StoredItem[V]]:
         """
-        Get a snapshot of the current registry as a dictionary.
-
-        Raises:
-            TypeError: If the registry contains non-serializable values.
+        Get a snapshot of the current registry as a mapping of StoredItem objects.
         """
-        return self._store.to_dict()
+        out: Dict[K, StoredItem[V]] = {}
+        for k in self._store.keys():
+            v = self._store.get(k)
+            if v is None:
+                continue
+            out[k] = StoredItem(value=v)
+        return out
 
     def to_dict(self) -> Dict[K, V]:
         """
-        Convert the registry to a dictionary.
-
-        Raises:
-            TypeError: If the registry contains non-serializable values.
+        Convert the registry to a plain dictionary of values (used for
+        serialization). This keeps the original `to_dict()` contract for
+        consumers that expect plain values.
         """
-        return self.snapshot()
+        snap = self.snapshot()
+        return {k: item.value for k, item in snap.items()}
 
     @classmethod
     def from_dict(cls, data: Mapping[K, V]) -> "Registry[K, V]":
@@ -231,7 +260,7 @@ class Registry(MutableMapping, Generic[K, V]):
         """
 
         @contextlib.contextmanager
-        def _bulk_ctx():
+        def _bulk_ctx() -> Iterator[Registry[K, V]]:
             self._lock.acquire()
             try:
                 yield self
@@ -289,9 +318,9 @@ class Registry(MutableMapping, Generic[K, V]):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({list(self._store.keys())!r})"
 
-    def __getstate__(self):
+    def __getstate__(self) -> Dict[str, Any]:
         return {"_store": self._store.to_dict()}
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: Dict[str, Any]) -> None:
         self._lock = RLock()
         self._store.update(state.get("_store", {}))

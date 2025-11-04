@@ -42,7 +42,7 @@ lint.select = ["E", "F", "W", "C", "N", "I"]
 exclude = [".venv", "build", "dist"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.9"
 ignore_missing_imports = true
 strict = true
 
