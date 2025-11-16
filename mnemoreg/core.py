@@ -54,14 +54,69 @@ class OverwritePolicy(IntEnum):
 
 @dataclass
 class StoredItem(Generic[V]):
-    """Wrapper for stored values returned by `snapshot()`.
+    """Transparent wrapper for stored values returned by `snapshot()`.
 
-    Keeping a tiny dataclass lets us return a concrete, well-typed object
-    from `snapshot()` rather than exposing Any that may flow from protocol
-    call sites.
+    The wrapper stores a value in the `value` attribute but delegates
+    attribute access and many common operations to the underlying value so
+    code can treat a StoredItem like the wrapped object (e.g. a list and
+    call .append on the StoredItem).
     """
 
-    value: V
+    _value: Any
+
+    def __init__(self, value: Optional[V]) -> None:
+        self._value = value
+
+    @property
+    def value(self) -> Optional[V]:
+        return cast(Optional[V], self._value)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._value, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_value" or name.startswith("_") or name in type(self).__dict__:
+            object.__setattr__(self, name, value)
+        else:
+            try:
+                setattr(self._value, name, value)
+            except Exception:
+                object.__setattr__(self, name, value)
+
+    def __repr__(self) -> str:  # pragma: no cover - trivial
+        return f"{self.__class__.__name__}({self._value!r})"
+
+    def __str__(self) -> str:
+        return str(self._value)
+
+    def __len__(self) -> int:
+        return len(self._value)
+
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self._value)
+
+    def __getitem__(self, key: Any) -> Any:
+        return self._value[key]
+
+    def __setitem__(self, key: Any, val: Any) -> None:
+        self._value[key] = val
+
+    def __delitem__(self, key: Any) -> None:
+        del self._value[key]
+
+    def __contains__(self, item: Any) -> bool:
+        return item in self._value
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self._value(*args, **kwargs)
+
+    def __bool__(self) -> bool:
+        return bool(self._value)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, StoredItem):
+            return bool(self._value == other._value)
+        return bool(self._value == other)
 
 
 class Registry(MutableMapping[K, V], Generic[K, V]):
@@ -181,24 +236,14 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
         return self._store.get(key, default)
 
     @locked_method
-    def snapshot(self) -> Dict[K, StoredItem[V]]:
-        """
-        Get a snapshot of the current registry as a mapping of StoredItem objects.
-        """
-        out: Dict[K, StoredItem[V]] = {}
+    def snapshot(self) -> Dict[K, StoredItem[Optional[V]]]:
+        out: Dict[K, StoredItem[Optional[V]]] = {}
         for k in self._store.keys():
-            v = self._store.get(k)
-            if v is None:
-                continue
-            out[k] = StoredItem(value=v)
+            v = self._store.get(k)  # v: Optional[V]
+            out[k] = StoredItem(v)
         return out
 
-    def to_dict(self) -> Dict[K, V]:
-        """
-        Convert the registry to a plain dictionary of values (used for
-        serialization). This keeps the original `to_dict()` contract for
-        consumers that expect plain values.
-        """
+    def to_dict(self) -> Dict[K, Optional[V]]:
         snap = self.snapshot()
         return {k: item.value for k, item in snap.items()}
 
