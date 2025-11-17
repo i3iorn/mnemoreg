@@ -172,7 +172,8 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
             registry = Registry[str, int](log_level=logging.DEBUG, overwrite_policy=1)
         """
         if lock is not None and not all(
-            hasattr(lock, method) for method in ("__enter__", "__exit__")
+            hasattr(lock, method)
+            for method in ("__enter__", "__exit__", "acquire", "release")
         ):
             raise TypeError("lock must be a threading.RLock or similar object")
 
