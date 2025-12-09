@@ -1,4 +1,5 @@
 import threading
+from typing import Any, Callable, Dict, List
 
 import pytest
 
@@ -9,13 +10,13 @@ pytestmark = pytest.mark.filterwarnings(
 )
 
 
-def _writer(reg: Registry, start: int, end: int):
+def _writer(reg: Registry[str, int], start: int, end: int) -> None:
     for i in range(start, end):
         key = f"k{i}"
         reg[key] = i
 
 
-def _reader(reg: Registry, start: int, end: int, results: list):
+def _reader(reg: Registry[str, int], start: int, end: int, results: List[int]) -> None:
     for i in range(start, end):
         key = f"k{i}"
         try:
@@ -23,10 +24,10 @@ def _reader(reg: Registry, start: int, end: int, results: list):
             if val is not None:
                 results.append(val)
         except Exception as e:
-            results.append(str(e))
+            results.append(str(e))  # type: ignore[arg-type]
 
 
-def _deleter(reg: Registry):
+def _deleter(reg: Registry[str, int]) -> None:
     for i in range(0, 100, 2):
         try:
             del reg[f"k{i}"]
@@ -34,7 +35,7 @@ def _deleter(reg: Registry):
             pass
 
 
-def _getter(reg: Registry, results: list):
+def _getter(reg: Registry[str, int], results: List[Any]) -> None:
     for i in range(100):
         try:
             val = reg.get(f"k{i}")
@@ -43,15 +44,17 @@ def _getter(reg: Registry, results: list):
             results.append(None)
 
 
-def _make_and_register_func(reg: Registry, n: int):
+def _make_and_register_func(
+    reg: Registry[str, Callable[[int], int]], n: int
+) -> Callable[[int], int]:
     @reg.register(f"f{n}")
-    def f(x):
+    def f(x: int) -> int:
         return x + n
 
     return f
 
 
-def _bulk_writer(reg: Registry, start: int, end: int):
+def _bulk_writer(reg: Registry[str, int], start: int, end: int) -> None:
     with reg.bulk() as r:
         for i in range(start, end):
             key = f"k{i}"
@@ -64,23 +67,23 @@ def _bulk_writer(reg: Registry, start: int, end: int):
                     pass
 
 
-def _mutator(reg: Registry):
+def _mutator(reg: Registry[str, int]) -> None:
     for i in range(50, 100):
         reg[f"k{i}"] = i
 
 
-def _snapper(reg: Registry, out_list: list):
+def _snapper(reg: Registry[str, int], out_list: List[Dict[str, int]]) -> None:
     out_list.append(reg.snapshot())
 
 
-def test_concurrent_set_and_get():
-    r = Registry[str, int]()
+def test_concurrent_set_and_get() -> None:
+    r: Registry[str, int] = Registry()
 
     write_threads = [
         threading.Thread(target=_writer, args=(r, i * 10, (i + 1) * 10))
         for i in range(5)
     ]
-    read_results = []
+    read_results: List[int] = []
     read_threads = [
         threading.Thread(target=_reader, args=(r, 0, 50, read_results))
         for _ in range(5)
@@ -106,13 +109,13 @@ def test_concurrent_set_and_get():
         assert isinstance(val, int)
 
 
-def test_concurrent_deletion_and_access():
-    r = Registry[str, int]()
+def test_concurrent_deletion_and_access() -> None:
+    r: Registry[str, int] = Registry()
     for i in range(100):
         r[f"k{i}"] = i
 
-    threads = []
-    results = []
+    threads: List[threading.Thread] = []
+    results: List[int] = []
 
     for _ in range(5):
         threads.append(threading.Thread(target=_deleter, args=(r,)))
@@ -131,8 +134,8 @@ def test_concurrent_deletion_and_access():
         assert r[f"k{i}"] == i
 
 
-def test_concurrent_register_decorator():
-    r = Registry[str, int]()
+def test_concurrent_register_decorator() -> None:
+    r: Registry[str, Callable[[int], int]] = Registry()
 
     threads = [
         threading.Thread(
@@ -155,8 +158,8 @@ def test_concurrent_register_decorator():
         assert f(10) == 10 + i
 
 
-def test_bulk_context_under_concurrency():
-    r = Registry[str, int]()
+def test_bulk_context_under_concurrency() -> None:
+    r: Registry[str, int] = Registry()
 
     threads = [
         threading.Thread(target=_bulk_writer, args=(r, i * 10, (i + 1) * 10))
@@ -174,15 +177,15 @@ def test_bulk_context_under_concurrency():
         assert isinstance(r[key], int)
 
 
-def test_snapshot_under_concurrent_modification():
-    r = Registry[str, int]()
+def test_snapshot_under_concurrent_modification() -> None:
+    r: Registry[str, int] = Registry()
 
     for i in range(50):
         r[f"k{i}"] = i
 
-    snapshot_results = []
+    snapshot_results: List[Dict[str, int]] = []
 
-    threads = []
+    threads: List[threading.Thread] = []
     for _ in range(5):
         threads.append(threading.Thread(target=_mutator, args=(r,)))
         threads.append(threading.Thread(target=_snapper, args=(r, snapshot_results)))
