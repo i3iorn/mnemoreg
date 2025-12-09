@@ -9,11 +9,14 @@ Key points
 - Small, stdlib-only implementation.
 - Thread-safe (uses RLock for mutations).
 - Simple decorator-based registration for callables.
+- Optional descriptions for stored values: each stored entry can carry an
+  optional human-readable description (string) that is accessible via
+  `Registry.snapshot()`.
 
 Quick facts
 - Package exports: `Registry`, `AlreadyRegisteredError`, `NotRegisteredError`, `StorageProtocol`, and `__version__`.
 - Main implementation: `mnemoreg/core.py`.
-- Storage helpers live in `mnemoreg/_storage` (default in-memory backend is exported as `MemoeryStorage` — note: the name contains a historical typo).
+- Storage helpers live in `mnemoreg/_storage` (default in-memory backend is exported as `MemoryStorage` — note: the name contains a historical typo).
 
 Install
 -------
@@ -48,8 +51,8 @@ r = Registry[str, int]()
 r['one'] = 1
 assert r['one'] == 1
 
-# decorator registration (explicit key)
-@r.register('plus')
+# decorator registration (explicit key) with optional description
+@r.register('plus', description='adds one')
 def plus(x: int) -> int:
     return x + 1
 
@@ -68,22 +71,66 @@ with r.bulk():
     r['b'] = 2
 
 # removal
-del r['a']  # there is no `unregister` helper; use deletion
+del r['a']
 
-# snapshots / serialization
-snap = r.snapshot()      # shallow dict copy
-s = r.to_json()          # JSON string (shallow)
+# snapshot returns a mapping of StoredItem objects that wrap the value and expose an optional description
+snap = r.snapshot()      # shallow dict copy; values are StoredItem objects
+item = snap['plus']
+assert item.value(2) == 3
+assert item.description == 'adds one'
+
+# to_dict / to_json produce a shallow mapping of *values* (descriptions are not included by default)
+# if you need to persist descriptions you can use from_dict/update with the Stored tuple form described below.
+s = r.to_json()          # JSON string of values only
 new_r = Registry.from_json(s)
 ```
 
+Storing descriptions and the Stored tuple
+----------------------------------------
+Internally, the storage backend stores entries as a 2-tuple (value, description).
+This is exposed via a convenient type alias in the library (see `mnemoreg._types.Stored`).
+The tuple form is:
+
+    (value_or_None, Optional[str])
+
+Examples:
+
+- Register via decorator with description:
+
+    @r.register('f', description='does something')
+    def f(x):
+        ...
+
+- Update or create entries using the Stored form (keeps description):
+
+    # Stored tuple (value, description)
+    r.update({'a': (1, 'one')})
+
+- Create a Registry from a dict that already contains descriptions:
+
+    new = Registry.from_dict({'k': (42, 'answer')})
+
+Notes about serialization and round-tripping
+-------------------------------------------
+- `Registry.to_dict()` and `Registry.to_json()` produce mappings of values only
+  (they call `snapshot()` and extract `.value`). Descriptions are intentionally
+  omitted from that shallow JSON representation to keep `to_json()` focused on
+  JSON-serializable payloads.
+- If you want to persist descriptions you must use the Stored tuple form when
+  calling `Registry.from_dict()` or `Registry.update()` so the description is
+  kept in the backend. Example:
+
+    saved = registry._store.to_dict()  # low-level store representation: {k: (value, description)}
+    Registry.from_dict(saved)
+
 API / behavior summary
 ----------------------
-- class Registry(Generic[K, V])
+- class `Registry(Generic[K, V])`
   - Mapping-like: `__getitem__`, `__setitem__`, `__delitem__`, `__iter__`, `__len__`, `__contains__`.
-  - `register(key: Optional[str] = None)` — decorator to register functions/values.
-  - `get(key, default=None)`, `snapshot()`, `to_dict()` — read helpers.
-  - `from_dict(mapping)`, `from_json(s)` — classmethods to build a Registry from serialized data.
-  - `to_json(**kwargs)` — serialize shallowly to JSON.
+  - `register(key: Optional[str] = None, description: Optional[str] = None)` — decorator to register functions/values with optional description.
+  - `get(key, default=None)`, `snapshot()` — read helpers. `snapshot()` returns a dict of `StoredItem` objects which provide `.value` and `.description`.
+  - `from_dict(mapping)`, `from_json(s)` — classmethods to build a Registry from serialized data; `from_dict` accepts either a plain mapping of values or the internal Stored tuple mapping `(value, description)`.
+  - `to_json(**kwargs)` — serialize shallowly to JSON (values only).
   - `bulk()` — context manager that acquires the registry lock for batched operations.
   - `update(mapping)`, `clear()`.
 
@@ -92,9 +139,9 @@ API / behavior summary
 - Exceptions: `AlreadyRegisteredError`, `NotRegisteredError`.
 
 Notes and caveats (important)
-- The public API does not include `unregister()` or `remove()` — remove entries with `del registry[key]`.
-- The storage package exports `MemoeryStorage` (typo). It's internal and only relevant when passing a custom `store=` to `Registry`.
-- `Registry` expects string keys (type bound K=str) and will raise on invalid keys (empty, contains whitespace, or wrong type).
+- Keys must be strings (type parameter `K` is bound to `str`). The registry will raise on invalid keys (empty string, contains whitespace, or wrong type).
+- `to_dict()` / `to_json()` intentionally drop descriptions. Use `from_dict()`/`update()` with Stored tuples if you need to preserve descriptions.
+- The `Stored` alias (Tuple[Optional[V], Optional[str]]) is available at `mnemoreg._types` for advanced uses.
 
 Development
 -----------
@@ -124,7 +171,6 @@ pre-commit run --all-files
 python -m mypy mnemoreg --ignore-missing-imports
 ```
 
-Pre-commit is configured in `.pre-commit-config.yaml`, and mypy/ruff settings live in `pyproject.toml`.
 
 CI & publishing
 ----------------

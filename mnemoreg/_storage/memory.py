@@ -1,20 +1,22 @@
 from typing import Dict, Generic, Iterator, Mapping, Optional
 
 from mnemoreg._storage.base import AbstractStorage
-from mnemoreg._types import K, V
+from mnemoreg._types import K, Stored, V
 
 
-class MemoeryStorage(AbstractStorage[K, V], Generic[K, V]):
+class MemoryStorage(AbstractStorage[K, V], Generic[K, V]):
     """A simple in-memory storage implementation using a dictionary."""
 
     def __init__(self) -> None:
-        self._store: Dict[K, V] = {}
+        self._store: Dict[K, Stored[V]] = {}
 
-    def set(self, key: K, value: V) -> None:
-        self._store[key] = value
+    def set(
+        self, key: K, value: Optional[V], description: Optional[str] = None
+    ) -> None:
+        self._store[key] = (value, description)
 
-    def get(self, key: K, default: Optional[V] = None) -> Optional[V]:
-        return self._store.get(key, default)
+    def get(self, key: K, default: Optional[V] = None) -> Stored[V]:
+        return self._store.get(key, (default, None))
 
     def delete(self, key: K) -> None:
         if key in self._store:
@@ -23,10 +25,10 @@ class MemoeryStorage(AbstractStorage[K, V], Generic[K, V]):
     def clear(self) -> None:
         self._store.clear()
 
-    def to_dict(self) -> Dict[K, V]:
+    def to_dict(self) -> Dict[K, Stored[V]]:
         return dict(self._store)
 
-    def update(self, data: Mapping[K, V]) -> None:
+    def update(self, data: Mapping[K, Stored[V]]) -> None:
         self._store.update(data)
 
     def keys(self) -> Iterator[K]:
