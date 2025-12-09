@@ -1,18 +1,20 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Generic, Iterator, Mapping, Optional
 
-from mnemoreg._types import K, V
+from mnemoreg._types import K, Stored, V
 
 
 class AbstractStorage(ABC, Generic[K, V]):
     """Abstract base class for storage implementations."""
 
     @abstractmethod
-    def set(self, key: K, value: V) -> None:
+    def set(
+        self, key: K, value: Optional[V], description: Optional[str] = None
+    ) -> None:
         pass
 
     @abstractmethod
-    def get(self, key: K, default: Optional[V] = None) -> Optional[V]:
+    def get(self, key: K, default: Optional[V] = None) -> Stored[V]:
         pass
 
     @abstractmethod
@@ -24,11 +26,11 @@ class AbstractStorage(ABC, Generic[K, V]):
         pass
 
     @abstractmethod
-    def to_dict(self) -> Dict[K, V]:
+    def to_dict(self) -> Dict[K, Stored[V]]:
         pass
 
     @abstractmethod
-    def update(self, data: Mapping[K, V]) -> None:
+    def update(self, data: Mapping[K, Stored[V]]) -> None:
         pass
 
     @abstractmethod

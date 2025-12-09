@@ -62,6 +62,8 @@ def test_init_with_invalid_log_level() -> None:
 
 
 def test_init_with_invalid_lock() -> None:
+    with pytest.raises(TypeError):
+        Registry(lock="not_a_lock")  # type: ignore
     # cast the wrong-type lock to Any to avoid mypy arg-type complaint; test
     # still asserts runtime TypeError is raised by Registry
     with pytest.raises(TypeError):

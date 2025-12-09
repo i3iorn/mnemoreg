@@ -1,47 +1,48 @@
 import json
+from typing import Dict
 
 import pytest
 
 from mnemoreg import Registry
 
 
-def test_empty_registry_len_and_repr_are_consistent():
-    r = Registry[str, int]()
+def test_empty_registry_len_and_repr_are_consistent() -> None:
+    r: Registry[str, int] = Registry()
     assert len(r) == 0
     assert "Registry" in repr(r)
     assert repr(r).endswith("([])")
 
 
-def test_register_empty_string_key():
-    r = Registry[str, int]()
+def test_register_empty_string_key() -> None:
+    r: Registry[str, int] = Registry()
     with pytest.raises(ValueError):
         r[""] = 123
 
 
-def test_register_special_character_keys():
-    r = Registry[str, str]()
+def test_register_special_character_keys() -> None:
+    r: Registry[str, str] = Registry()
     key = "@#$%^&*()"
     r[key] = "weird"
     assert key in r
     assert r[key] == "weird"
 
 
-def test_register_none_value_and_json_serialization():
-    r = Registry[str, object]()
+def test_register_none_value_and_json_serialization() -> None:
+    r: Registry[str, object] = Registry()
     r["none"] = None
     s = r.to_json()
     assert json.loads(s) == {"none": None}
-    new = Registry.from_json(s)
+    new: Registry[str, object] = Registry.from_json(s)
     assert "none" in new
     # TODO: Implement differentiation of set None value and not set value
     # assert new["none"] is None
 
 
-def test_decorator_registers_lambda_and_preserves_reference():
-    r = Registry[str, object]()
+def test_decorator_registers_lambda_and_preserves_reference() -> None:
+    r: Registry[str, object] = Registry()
 
     # use a named function instead of assigning a lambda to a name (E731)
-    def double(x):
+    def double(x: int) -> int:
         return x * 2
 
     func = double
@@ -49,8 +50,8 @@ def test_decorator_registers_lambda_and_preserves_reference():
     assert r["lambda"] is func is decorated
 
 
-def test_overwrite_during_bulk_isolated_to_context():
-    r = Registry[str, int]()
+def test_overwrite_during_bulk_isolated_to_context() -> None:
+    r: Registry[str, int] = Registry()
     r["a"] = 1
     with r.bulk() as reg:
         # intentionally delete and re-add same key inside context
@@ -61,26 +62,28 @@ def test_overwrite_during_bulk_isolated_to_context():
     assert r["a"] == 2
 
 
-def test_from_dict_with_nonempty_input_copies_safely():
-    data = {"x": 10}
+def test_from_dict_with_nonempty_input_copies_safely() -> None:
+    data: Dict[str, int] = {"x": 10}
     r = Registry.from_dict(data)
     assert r["x"] == 10
     data["x"] = 99  # mutate source dict
     assert r["x"] == 10  # copy must be independent
 
 
-def test_to_json_fails_with_non_serializable_value(monkeypatch):
+def test_to_json_fails_with_non_serializable_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Unserializable:
         pass
 
-    r = Registry[str, object]()
+    r: Registry[str, object] = Registry()
     r["bad"] = Unserializable()
     with pytest.raises(TypeError):
         _ = r.to_json()
 
 
-def test_iteration_snapshot_does_not_reflect_future_mutations():
-    r = Registry[str, int]()
+def test_iteration_snapshot_does_not_reflect_future_mutations() -> None:
+    r: Registry[str, int] = Registry()
     r["a"] = 1
     it = iter(r)
     r["b"] = 2
@@ -88,8 +91,8 @@ def test_iteration_snapshot_does_not_reflect_future_mutations():
     assert set(r) == {"a", "b"}  # live view
 
 
-def test_bulk_context_lock_release_even_on_nested_error():
-    r = Registry[str, int]()
+def test_bulk_context_lock_release_even_on_nested_error() -> None:
+    r: Registry[str, int] = Registry()
     try:
         with r.bulk() as reg:
             reg["a"] = 1
