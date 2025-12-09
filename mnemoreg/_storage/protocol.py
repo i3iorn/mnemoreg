@@ -7,7 +7,7 @@ from typing import (
     runtime_checkable,
 )
 
-from mnemoreg._types import K, V
+from mnemoreg._types import K, Stored, V
 
 
 @runtime_checkable
@@ -18,12 +18,14 @@ class StorageProtocol(Protocol[K, V]):
     specified here so the protocol stays small and permissive.
     """
 
-    def set(self, key: K, value: V) -> None:  # pragma: no cover - interface
+    def set(
+        self, key: K, value: Optional[V], description: Optional[str] = None
+    ) -> None:  # pragma: no cover - interface
         ...
 
     def get(
         self, key: K, default: Optional[V] = None
-    ) -> Optional[V]:  # pragma: no cover - interface
+    ) -> Stored[V]:  # pragma: no cover - interface
         ...
 
     def delete(self, key: K) -> None:  # pragma: no cover - interface
@@ -32,10 +34,12 @@ class StorageProtocol(Protocol[K, V]):
     def clear(self) -> None:  # pragma: no cover - interface
         ...
 
-    def to_dict(self) -> Dict[K, V]:  # pragma: no cover - interface
+    def to_dict(self) -> Dict[K, Stored[V]]:  # pragma: no cover - interface
         ...
 
-    def update(self, data: Mapping[K, V]) -> None:  # pragma: no cover - interface
+    def update(
+        self, data: Mapping[K, Stored[V]]
+    ) -> None:  # pragma: no cover - interface
         ...
 
     def keys(self) -> Iterator[K]:  # pragma: no cover - interface

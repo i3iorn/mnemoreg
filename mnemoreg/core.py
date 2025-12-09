@@ -15,11 +15,13 @@ from typing import (
     Mapping,
     MutableMapping,
     Optional,
+    Type,
     cast,
+    overload,
 )
 
-from mnemoreg._storage import MemoeryStorage, StorageProtocol
-from mnemoreg._types import K, V
+from mnemoreg._storage import MemoryStorage, StorageProtocol
+from mnemoreg._types import K, Stored, V
 from mnemoreg.exceptions import AlreadyRegisteredError, NotRegisteredError
 
 logger = logging.getLogger(__name__)
@@ -29,11 +31,11 @@ logger.setLevel(logging.WARNING)
 def _make_default_store() -> StorageProtocol[K, V]:
     """Create a default StorageProtocol[K, V] instance.
 
-    Construct the concrete MemoeryStorage() at runtime and cast it to the
+    Construct the concrete MemoryStorage() at runtime and cast it to the
     protocol with generics so the module-level type inference remains
     precise. Localizes the unavoidable cast to one place.
     """
-    return cast(StorageProtocol[K, V], MemoeryStorage())
+    return cast(StorageProtocol[K, V], MemoryStorage())
 
 
 def locked_method(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -63,19 +65,29 @@ class StoredItem(Generic[V]):
     """
 
     _value: Any
+    _description: Optional[str] = None
 
-    def __init__(self, value: Optional[V]) -> None:
+    def __init__(self, value: Optional[V], description: Optional[str] = None) -> None:
         self._value = value
+        self._description = description
 
     @property
     def value(self) -> Optional[V]:
         return cast(Optional[V], self._value)
 
+    @property
+    def description(self) -> Optional[str]:
+        return self._description
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._value, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_value" or name.startswith("_") or name in type(self).__dict__:
+        if (
+            name in ("_value", "_description")
+            or name.startswith("_")
+            or name in type(self).__dict__
+        ):
             object.__setattr__(self, name, value)
         else:
             try:
@@ -84,7 +96,10 @@ class StoredItem(Generic[V]):
                 object.__setattr__(self, name, value)
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
-        return f"{self.__class__.__name__}({self._value!r})"
+        return (
+            f"{self.__class__.__name__}("
+            f"{self._value!r}, description={self._description!r})"
+        )
 
     def __str__(self) -> str:
         return str(self._value)
@@ -180,7 +195,7 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
             raise ValueError("log_level must be a valid logging level between 0 and 50")
 
         self._lock: RLock = lock or RLock()
-        # Use a typed helper so the concrete MemoeryStorage() construction
+        # Use a typed helper so the concrete MemoryStorage() construction
         # does not introduce Any/Union into the annotated type of self._store.
         self._store: StorageProtocol[K, V] = (
             store if store is not None else _make_default_store()
@@ -188,13 +203,16 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
         self._overwrite_policy = OverwritePolicy(overwrite_policy)
         logger.setLevel(log_level)
 
-    def register(self, key: Optional[K] = None) -> Callable[[V], V]:
+    def register(
+        self, key: Optional[K] = None, description: Optional[str] = None
+    ) -> Callable[[V], V]:
         """
         Decorator to register an object with the given key.
 
         Args:
             key: The key to register the object under. If None, the object's
                  `__name__` attribute will be used.
+            description: Optional description for the registered object.
         Returns:
             A decorator that registers the object and returns it.
 
@@ -211,9 +229,15 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
                 )
             self._validate_key(reg_key, cant_exist=self._overwrite_policy == 0)
 
+            description_str = description
+            if not isinstance(description_str, str) and description_str is not None:
+                description_str = str(description_str)
+            if description_str is None:
+                description_str = f"Registered object of type {type(obj).__name__}"
+
             with self._lock:
                 # store under the resolved reg_key
-                self._store.set(reg_key, obj)
+                self._store.set(reg_key, obj, description=description_str)
                 logger.debug("Registered via decorator %s -> %s", reg_key, type(obj))
             return obj
 
@@ -232,22 +256,36 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
         """
         Get the value for the given key, or return default if not found.
         """
-        return self._store.get(key, default)
+        stored = self._store.get(key, default)
+        v, _ = stored
+        return v
 
     @locked_method
     def snapshot(self) -> Dict[K, StoredItem[Optional[V]]]:
         out: Dict[K, StoredItem[Optional[V]]] = {}
         for k in self._store.keys():
-            v = self._store.get(k)  # v: Optional[V]
-            out[k] = StoredItem(v)
+            v, d = self._store.get(k)  # v: Optional[V], d: Optional[str]
+            out[k] = StoredItem(v, d)
         return out
 
     def to_dict(self) -> Dict[K, Optional[V]]:
         snap = self.snapshot()
         return {k: item.value for k, item in snap.items()}
 
+    @overload
     @classmethod
-    def from_dict(cls, data: Mapping[K, V]) -> "Registry[K, V]":
+    def from_dict(
+        cls: Type["Registry[K, V]"], data: Mapping[K, Stored[V]]
+    ) -> "Registry[K, V]": ...
+
+    @overload
+    @classmethod
+    def from_dict(
+        cls: Type["Registry[K, V]"], data: Mapping[K, V]
+    ) -> "Registry[K, V]": ...
+
+    @classmethod
+    def from_dict(cls, data: Mapping[K, Any]) -> "Registry[K, Any]":
         """
         Create a Registry from a dictionary.
 
@@ -256,8 +294,15 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
         """
         r = cls()
         with r._lock:
-            r._store.update(dict(data))
-        return r
+            # accept Mapping[K, V] or Mapping[K, Stored[V]]; coerce to Stored[Any]
+            normalized: Dict[K, Stored[Any]] = {}
+            for k, v in data.items():
+                if isinstance(v, tuple) and len(v) == 2:
+                    normalized[k] = cast(Stored[Any], v)
+                else:
+                    normalized[k] = (cast(Optional[Any], v), None)
+            r._store.update(normalized)
+        return cast("Registry[K, Any]", r)
 
     def to_json(self, **kwargs: Any) -> str:
         """
@@ -269,7 +314,7 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
         return json.dumps(self.to_dict(), **kwargs)
 
     @classmethod
-    def from_json(cls, s: str, **kwargs: Any) -> "Registry[K, V]":
+    def from_json(cls, s: str, **kwargs: Any) -> "Registry[K, Any]":
         """
         Deserialize a JSON string to create a Registry.
 
@@ -279,16 +324,20 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
         return cls.from_dict(json.loads(s, **kwargs))
 
     @locked_method
-    def update(self, data: Mapping[K, V]) -> None:
+    def update(self, data: Mapping[K, Any]) -> None:
         """
         Update the registry with multiple key-value pairs.
 
         Raises:
             TypeError: If any key is not a valid string.
         """
-        for k, v in data.items():
+        for k, vd in data.items():
+            if isinstance(vd, tuple) and len(vd) == 2:
+                v, d = vd
+            else:
+                v, d = (cast(Optional[V], vd), None)
             self._validate_key(k, cant_exist=self._overwrite_policy == 0)
-            self._store.set(k, v)
+            self._store.set(k, v, d)
 
     def bulk(self) -> ContextManager["Registry[K, V]"]:
         """
@@ -330,15 +379,17 @@ class Registry(MutableMapping[K, V], Generic[K, V]):
     @locked_method
     def __getitem__(self, key: K) -> V:
         self._validate_key(key, must_exist=True)
-        res = self._store.get(key)
-        if res is None:
+        stored = self._store.get(key)
+        v, _ = stored
+        if v is None:
             raise NotRegisteredError(f"Registry key {key!r} is not registered")
-        return res
+        return v
 
     @locked_method
     def __setitem__(self, key: K, value: V) -> None:
         self._validate_key(key, cant_exist=self._overwrite_policy == 0)
-        self._store.set(key, value)
+        # no description provided when setting via mapping assignment
+        self._store.set(key, value, description=None)
         logger.debug("Registered %s -> %s", key, type(value))
 
     @locked_method
