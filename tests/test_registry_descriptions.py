@@ -6,18 +6,9 @@ from mnemoreg import Registry
 def test_register_decorator_stores_description() -> None:
     r: Registry[str, Callable[[int], int]] = Registry()
 
-    @r.register("f")
+    @r.register("f", "adds one")
     def plus_one(x: int) -> int:
         return x + 1
-
-    # attach description using public update API to avoid decorator signature ambiguity
-    # in type checks
-    r.update(
-        cast(
-            Mapping[str, Tuple[Optional[Callable[[int], int]], Optional[str]]],
-            {"f": (r["f"], "adds one")},
-        )
-    )
 
     snap = r.snapshot()
     assert "f" in snap
