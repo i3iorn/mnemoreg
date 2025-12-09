@@ -1,4 +1,5 @@
 import json
+from typing import Optional, cast
 
 import pytest
 
@@ -9,8 +10,8 @@ from mnemoreg import (
 )
 
 
-def test_set_get_and_delete_basic_behavior():
-    r = Registry[str, int]()
+def test_set_get_and_delete_basic_behavior() -> None:
+    r: Registry[str, int] = Registry()
     r["a"] = 1
     assert r["a"] == 1
     assert "a" in r
@@ -24,24 +25,24 @@ def test_set_get_and_delete_basic_behavior():
         _ = r["a"]
 
 
-def test_duplicate_set_raises():
-    r = Registry[str, int]()
+def test_duplicate_set_raises() -> None:
+    r: Registry[str, int] = Registry()
     r["x"] = 10
     with pytest.raises(AlreadyRegisteredError):
         r["x"] = 20
 
 
-def test_delete_not_registered_raises():
-    r = Registry[str, int]()
+def test_delete_not_registered_raises() -> None:
+    r: Registry[str, int] = Registry()
     with pytest.raises(NotRegisteredError):
         del r["nope"]
 
 
-def test_register_decorator_and_duplicate_decorator():
-    r = Registry[str, object]()
+def test_register_decorator_and_duplicate_decorator() -> None:
+    r: Registry[str, object] = Registry()
 
     @r.register("f")
-    def plus_one(x):
+    def plus_one(x: int) -> int:
         return x + 1
 
     assert callable(r["f"])
@@ -51,18 +52,18 @@ def test_register_decorator_and_duplicate_decorator():
     with pytest.raises(AlreadyRegisteredError):
 
         @r.register("f")
-        def another(x):
+        def another(x: int) -> int:
             return x
 
 
-def test_get_default_behavior():
-    r = Registry[str, int]()
+def test_get_default_behavior() -> None:
+    r: Registry[str, int] = Registry()
     assert r.get("missing", "default") == "default"
     assert r.get("missing") is None
 
 
-def test_snapshot_and_to_dict_and_from_dict_are_shallow_and_independent():
-    r = Registry[str, dict]()
+def test_snapshot_and_to_dict_and_from_dict_are_shallow_and_independent() -> None:
+    r: Registry[str, dict[str, int]] = Registry()
     r["conf"] = {"a": 1}
 
     snap = r.snapshot()
@@ -72,28 +73,28 @@ def test_snapshot_and_to_dict_and_from_dict_are_shallow_and_independent():
     snap["conf"]["a"] = 999  # shallow change: underlying value is same reference
     assert r["conf"]["a"] == 999  # values are same reference (shallow copy)
     # but replacing mapping in snapshot doesn't change original
-    d = r.to_dict()
+    d: dict[str, Optional[dict[str, int]]] = r.to_dict()
     d["conf"] = {"a": 0}
     assert r["conf"]["a"] == 999
 
-    new = Registry.from_dict({"conf": {"a": 2}})
+    new: Registry[str, dict[str, int]] = Registry.from_dict({"conf": {"a": 2}})
     assert new["conf"]["a"] == 2
 
 
-def test_to_json_and_from_json_roundtrip():
-    r = Registry[str, int]()
+def test_to_json_and_from_json_roundtrip() -> None:
+    r: Registry[str, int] = Registry()
     r["num"] = 42
     s = r.to_json()
     # ensure it's valid JSON and roundtrips
     obj = json.loads(s)
     assert obj == {"num": 42}
 
-    new = Registry.from_json(s)
+    new: Registry[str, int] = Registry.from_json(s)
     assert new["num"] == 42
 
 
-def test_iter_returns_snapshot_iterator():
-    r = Registry[str, int]()
+def test_iter_returns_snapshot_iterator() -> None:
+    r: Registry[str, int] = Registry()
     r["k1"] = 1
     it = iter(r)
     # mutate registry after getting iterator
@@ -105,18 +106,18 @@ def test_iter_returns_snapshot_iterator():
     assert list(iter(r)) == ["k1", "k2"]
 
 
-def test_repr_contains_keys_and_len_and_contains_non_str_key():
-    r = Registry[str, int]()
+def test_repr_contains_keys_and_len_and_contains_non_str_key() -> None:
+    r: Registry[str, int] = Registry()
     r["one"] = 1
     r["two"] = 2
     rep = repr(r)
     assert "one" in rep and "two" in rep
     # __contains__ should accept any object (false for non-existing)
-    assert (123 in r) is False
+    assert (cast(object, 123) in r) is False
 
 
-def test_bulk_context_manager_and_exception_propagation_releases_lock():
-    r = Registry[str, int]()
+def test_bulk_context_manager_and_exception_propagation_releases_lock() -> None:
+    r: Registry[str, int] = Registry()
 
     # normal usage should allow modifications while holding lock
     with r.bulk() as reg:
