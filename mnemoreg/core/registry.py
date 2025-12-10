@@ -1,8 +1,6 @@
 import contextlib
 import json
 import logging
-from dataclasses import dataclass
-from enum import IntEnum
 from threading import RLock
 from typing import (
     Any,
@@ -20,118 +18,12 @@ from typing import (
     overload,
 )
 
-from mnemoreg._storage import MemoryStorage, StorageProtocol
+from mnemoreg import AlreadyRegisteredError, NotRegisteredError, StorageProtocol
 from mnemoreg._types import K, Stored, V
-from mnemoreg.exceptions import AlreadyRegisteredError, NotRegisteredError
+from mnemoreg.core.stored_item import StoredItem
+from mnemoreg.core.utils import OverwritePolicy, _make_default_store, locked_method
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
-
-
-def _make_default_store() -> StorageProtocol[K, V]:
-    """Create a default StorageProtocol[K, V] instance.
-
-    Construct the concrete MemoryStorage() at runtime and cast it to the
-    protocol with generics so the module-level type inference remains
-    precise. Localizes the unavoidable cast to one place.
-    """
-    return cast(StorageProtocol[K, V], MemoryStorage())
-
-
-def locked_method(method: Callable[..., Any]) -> Callable[..., Any]:
-    """Decorator to lock method calls for thread safety."""
-
-    def wrapper(self: "Registry[K, V]", *args: Any, **kwargs: Any) -> Any:
-        with self._lock:
-            return method(self, *args, **kwargs)
-
-    return wrapper
-
-
-class OverwritePolicy(IntEnum):
-    FORBID = 0
-    ALLOW = 1
-    WARN = 2
-
-
-@dataclass
-class StoredItem(Generic[V]):
-    """Transparent wrapper for stored values returned by `snapshot()`.
-
-    The wrapper stores a value in the `value` attribute but delegates
-    attribute access and many common operations to the underlying value so
-    code can treat a StoredItem like the wrapped object (e.g. a list and
-    call .append on the StoredItem).
-    """
-
-    _value: Any
-    _description: Optional[str] = None
-
-    def __init__(self, value: Optional[V], description: Optional[str] = None) -> None:
-        self._value = value
-        self._description = description
-
-    @property
-    def value(self) -> Optional[V]:
-        return cast(Optional[V], self._value)
-
-    @property
-    def description(self) -> Optional[str]:
-        return self._description
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._value, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if (
-            name in ("_value", "_description")
-            or name.startswith("_")
-            or name in type(self).__dict__
-        ):
-            object.__setattr__(self, name, value)
-        else:
-            try:
-                setattr(self._value, name, value)
-            except Exception:
-                object.__setattr__(self, name, value)
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return (
-            f"{self.__class__.__name__}("
-            f"{self._value!r}, description={self._description!r})"
-        )
-
-    def __str__(self) -> str:
-        return str(self._value)
-
-    def __len__(self) -> int:
-        return len(self._value)
-
-    def __iter__(self) -> Iterator[Any]:
-        return iter(self._value)
-
-    def __getitem__(self, key: Any) -> Any:
-        return self._value[key]
-
-    def __setitem__(self, key: Any, val: Any) -> None:
-        self._value[key] = val
-
-    def __delitem__(self, key: Any) -> None:
-        del self._value[key]
-
-    def __contains__(self, item: Any) -> bool:
-        return item in self._value
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self._value(*args, **kwargs)
-
-    def __bool__(self) -> bool:
-        return bool(self._value)
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, StoredItem):
-            return bool(self._value == other._value)
-        return bool(self._value == other)
 
 
 class Registry(MutableMapping[K, V], Generic[K, V]):

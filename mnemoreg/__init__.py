@@ -9,11 +9,9 @@ from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import Optional
 
-from mnemoreg._storage import StorageProtocol
-from mnemoreg.core import (
-    Registry,
-)
-from mnemoreg.exceptions import AlreadyRegisteredError, NotRegisteredError
+from ._storage import StorageProtocol
+from .core.registry import Registry
+from .exceptions import AlreadyRegisteredError, NotRegisteredError
 
 
 def _read_version_file() -> Optional[str]:
