@@ -43,6 +43,37 @@ https://keepachangelog.com/en/1.0.0/
 - Updated tests and typing signatures so the test suite passes under strict
   mypy settings.
 
+### Core refactor and API updates
+- The `mnemoreg.core` implementation was refactored into a small package
+  (`mnemoreg/core/`) with three focused modules: `registry.py`,
+  `stored_item.py`, and `utils.py` to improve structure and testability.
+- `Registry` now lives in `mnemoreg.core.registry` and includes these changes:
+  - `register(..., description=...)`: decorator supports an optional
+    description which is stored with the value and is exposed via
+    `snapshot()`.
+  - `snapshot()` returns `StoredItem` wrappers (defined in
+    `stored_item.py`) exposing `.value` and `.description` while delegating
+    common operations to the wrapped value.
+  - `from_dict()` is overloaded to accept either a plain Mapping[K, V]
+    or a Mapping[K, Stored[V]] (the internal (value, description) form) and
+    will normalize input accordingly.
+  - `update()` accepts either plain values or Stored-form tuples and will
+    persist descriptions when provided.
+  - `to_dict()` / `to_json()` remain intentionally value-centric (they
+    return values only); to persist descriptions use the Stored form or the
+    low-level store dump.
+  - Lock validation tightened: provided `lock` objects are checked for
+    context-manager and lock methods (enter/exit/acquire/release) to
+    improve error messages when an invalid lock is supplied.
+  - `bulk()` context manager remains available for batched operations and
+    continues to rely on the guard lock (RLock by default).
+- Storage typing: `StorageProtocol` and `AbstractStorage` signatures were
+  updated to use the `Stored[V]` alias; `MemoryStorage` stores
+  `Dict[K, Stored[V]]`.
+- Typing and tests: a wide sweep of typing improvements was applied across
+  the codebase to satisfy strict `mypy` checks; tests were updated with
+  explicit annotations and new tests added for description behavior.
+
 ### Notes / Migration
 - Backwards compatibility: the Registry mapping-like behavior for storing and
   retrieving values remains the same for the common cases (e.g. `r['k'] = v`,
